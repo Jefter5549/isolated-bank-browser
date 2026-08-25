@@ -17,7 +17,7 @@ final class BrowserViewController: UIViewController {
     private var bookmarksButton: UIBarButtonItem!
     private var shareButton: UIBarButtonItem!
 
-    // MARK: - Bank Shortcuts
+    // MARK: - Bank Shortcuts (Только прямые основные домены банков)
     private struct BankShortcut {
         let title: String
         let url: String
@@ -25,12 +25,12 @@ final class BrowserViewController: UIViewController {
     }
 
     private let shortcuts: [BankShortcut] = [
-        BankShortcut(title: "🏦 Кредит Урал Банк (КУБ-Direct)", url: "https://direct.creditural.ru/mobile/", subtitle: "КУБ Мобильный веб-банк"),
-        BankShortcut(title: "🏦 ВТБ Онлайн (СБП Шлюз)", url: "https://online.vneshtbank.ru/i/paymentSbp", subtitle: "Резервный шлюз СБП"),
-        BankShortcut(title: "🏦 ВТБ Онлайн (Основной)", url: "https://online.vtb.ru", subtitle: "Личный кабинет"),
+        BankShortcut(title: "🏦 Кредит Урал Банк (КУБ-Direct)", url: "https://direct.creditural.ru/", subtitle: "Прямой вход в КУБ"),
+        BankShortcut(title: "🏦 ВТБ Онлайн", url: "https://online.vtb.ru", subtitle: "Основной домен ВТБ"),
         BankShortcut(title: "🏦 СберБанк Онлайн", url: "https://online.sberbank.ru", subtitle: "Сбер веб-клиент"),
-        BankShortcut(title: "🏦 Газпромбанк", url: "https://sbpgpb.ru/c2bpayments", subtitle: "ГПБ Платежи СБП"),
-        BankShortcut(title: "🏦 Альфа-Банк", url: "https://web.alfabank.ru", subtitle: "Альфа-Онлайн"),
+        BankShortcut(title: "🏦 Газпромбанк", url: "https://online.gpb.ru", subtitle: "ГПБ Онлайн"),
+        BankShortcut(title: "🏦 Альфа-Онлайн", url: "https://web.alfabank.ru", subtitle: "Альфа-Банк"),
+        BankShortcut(title: "🏦 Т-Банк", url: "https://www.tbank.ru", subtitle: "Личный кабинет"),
         BankShortcut(title: "🏛 Госуслуги", url: "https://gosuslugi.ru", subtitle: "Портал Госуслуг")
     ]
 
@@ -46,7 +46,7 @@ final class BrowserViewController: UIViewController {
         setupLayout()
 
         // Загружаем стартовую страницу (КУБ-Direct)
-        if let initialUrl = URL(string: "https://direct.creditural.ru/mobile/") {
+        if let initialUrl = URL(string: "https://direct.creditural.ru/") {
             loadURL(initialUrl)
         }
     }
@@ -55,7 +55,7 @@ final class BrowserViewController: UIViewController {
     private func setupNavigationBar() {
         navigationItem.titleView = urlTextField
         urlTextField.borderStyle = .roundedRect
-        urlTextField.placeholder = "Введите URL или выберите банк..."
+        urlTextField.placeholder = "Введите адрес сайта или выберите банк..."
         urlTextField.keyboardType = .URL
         urlTextField.autocapitalizationType = .none
         urlTextField.autocorrectionType = .no
@@ -71,7 +71,12 @@ final class BrowserViewController: UIViewController {
         config.mediaTypesRequiringUserActionForPlayback = []
         config.defaultWebpagePreferences.allowsContentJavaScript = true
 
+        // Кастомный User Agent для корректного мобильного рендеринга
+        let defaultSafariUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+        config.applicationNameForUserAgent = "Version/17.5 Mobile/15E148 Safari/604.1"
+
         webView = WKWebView(frame: .zero, configuration: config)
+        webView.customUserAgent = defaultSafariUA
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
@@ -154,7 +159,7 @@ final class BrowserViewController: UIViewController {
     }
 
     @objc private func showBookmarks() {
-        let alert = UIAlertController(title: "Быстрый переход", message: "Выберите банковский сервис:", preferredStyle: .actionSheet)
+        let alert = UIAlertController(title: "Быстрый переход", message: "Основные банковские сервисы:", preferredStyle: .actionSheet)
 
         for bank in shortcuts {
             alert.addAction(UIAlertAction(title: bank.title, style: .default, handler: { [weak self] _ in
@@ -246,7 +251,6 @@ extension BrowserViewController: WKNavigationDelegate {
             return
         }
 
-        // Если валидация не прошла — стандартное поведение iOS
         completionHandler(.performDefaultHandling, nil)
     }
 
@@ -256,14 +260,18 @@ extension BrowserViewController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         progressView.isHidden = true
-        print("[WebView] Ошибка навигации: \(error.localizedDescription)")
+        NSLog("[WebView] Ошибка навигации: %@", error.localizedDescription)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        progressView.isHidden = true
+        NSLog("[WebView] Ошибка предварительной навигации: %@", error.localizedDescription)
     }
 }
 
-// MARK: - WKUIDelegate (Camera & Alerts Support for QR/SBP)
+// MARK: - WKUIDelegate (Camera & Alerts Support)
 extension BrowserViewController: WKUIDelegate {
 
-    // Автоматическое разрешение доступа к камере для сканирования QR-кодов СБП
     @available(iOS 15.0, *)
     func webView(_ webView: WKWebView, 
                  requestMediaCapturePermissionFor origin: WKSecurityOrigin, 
@@ -273,7 +281,6 @@ extension BrowserViewController: WKUIDelegate {
         decisionHandler(.grant)
     }
 
-    // Поддержка всплывающих окон и ссылок target="_blank"
     func webView(_ webView: WKWebView, 
                  createWebViewWith configuration: WKWebViewConfiguration, 
                  for navigationAction: WKNavigationAction, 
@@ -284,7 +291,6 @@ extension BrowserViewController: WKUIDelegate {
         return nil
     }
 
-    // Обработка JavaScript Alert
     func webView(_ webView: WKWebView, 
                  runJavaScriptAlertPanelWithMessage message: String, 
                  initiatedByFrame frame: WKFrameInfo, 
@@ -294,7 +300,6 @@ extension BrowserViewController: WKUIDelegate {
         present(alert, animated: true)
     }
 
-    // Обработка JavaScript Confirm
     func webView(_ webView: WKWebView, 
                  runJavaScriptConfirmPanelWithMessage message: String, 
                  initiatedByFrame frame: WKFrameInfo, 
