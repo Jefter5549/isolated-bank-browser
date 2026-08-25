@@ -1,0 +1,17 @@
+# Antigravity Persistent Scratchpad
+ANTIGRAVITY_NOTES.md
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcuserdatad
+xcuserdata/
+*.xcbkptlist
+*.ninja
+*.ipa
+Payload/
+
+# OS
+.DS_Store
+Thumbs.db
