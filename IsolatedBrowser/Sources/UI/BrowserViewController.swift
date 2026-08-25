@@ -15,9 +15,10 @@ final class BrowserViewController: UIViewController {
     private var forwardButton: UIBarButtonItem!
     private var reloadButton: UIBarButtonItem!
     private var bookmarksButton: UIBarButtonItem!
+    private var devToolsButton: UIBarButtonItem!
     private var shareButton: UIBarButtonItem!
 
-    // MARK: - Bank Shortcuts (Только прямые основные домены банков)
+    // MARK: - Bank Shortcuts
     private struct BankShortcut {
         let title: String
         let url: String
@@ -45,7 +46,6 @@ final class BrowserViewController: UIViewController {
         setupToolbar()
         setupLayout()
 
-        // Загружаем стартовую страницу (КУБ-Direct)
         if let initialUrl = URL(string: "https://direct.creditural.ru/") {
             loadURL(initialUrl)
         }
@@ -55,7 +55,7 @@ final class BrowserViewController: UIViewController {
     private func setupNavigationBar() {
         navigationItem.titleView = urlTextField
         urlTextField.borderStyle = .roundedRect
-        urlTextField.placeholder = "Введите адрес сайта или выберите банк..."
+        urlTextField.placeholder = "Введите URL или выберите банк..."
         urlTextField.keyboardType = .URL
         urlTextField.autocapitalizationType = .none
         urlTextField.autocorrectionType = .no
@@ -71,12 +71,23 @@ final class BrowserViewController: UIViewController {
         config.mediaTypesRequiringUserActionForPlayback = []
         config.defaultWebpagePreferences.allowsContentJavaScript = true
 
-        // Кастомный User Agent для корректного мобильного рендеринга
-        let defaultSafariUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+        // Внедряем Eruda DevTools для отладки прямо на экране
+        let erudaScript = """
+        (function () {
+            var script = document.createElement('script');
+            script.src = "//cdn.jsdelivr.net/npm/eruda";
+            document.body.appendChild(script);
+            script.onload = function () { eruda.init(); }
+        })();
+        """
+        let userScript = WKUserScript(source: erudaScript, injectionTime: .atDocumentEnd, forMainFrameOnly: false)
+        config.userContentController.addUserScript(userScript)
+
+        let defaultUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
         config.applicationNameForUserAgent = "Version/17.5 Mobile/15E148 Safari/604.1"
 
         webView = WKWebView(frame: .zero, configuration: config)
-        webView.customUserAgent = defaultSafariUA
+        webView.customUserAgent = defaultUA
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
@@ -106,13 +117,14 @@ final class BrowserViewController: UIViewController {
         forwardButton = UIBarButtonItem(image: UIImage(systemName: "chevron.right"), style: .plain, target: self, action: #selector(goForward))
         let space = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
         bookmarksButton = UIBarButtonItem(image: UIImage(systemName: "building.columns"), style: .plain, target: self, action: #selector(showBookmarks))
+        devToolsButton = UIBarButtonItem(image: UIImage(systemName: "ladybug"), style: .plain, target: self, action: #selector(toggleDevTools))
         shareButton = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.up"), style: .plain, target: self, action: #selector(sharePage))
         reloadButton = UIBarButtonItem(image: UIImage(systemName: "arrow.clockwise"), style: .plain, target: self, action: #selector(reloadPage))
 
         backButton.isEnabled = false
         forwardButton.isEnabled = false
 
-        toolbar.items = [backButton, space, forwardButton, space, bookmarksButton, space, shareButton, space, reloadButton]
+        toolbar.items = [backButton, space, forwardButton, space, bookmarksButton, space, devToolsButton, space, shareButton, space, reloadButton]
         view.addSubview(toolbar)
     }
 
@@ -156,6 +168,10 @@ final class BrowserViewController: UIViewController {
         guard let url = webView.url else { return }
         let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         present(activityVC, animated: true)
+    }
+
+    @objc private func toggleDevTools() {
+        webView.evaluateJavaScript("if (window.eruda) { eruda.show(); } else { alert('Eruda загружается...'); }", completionHandler: nil)
     }
 
     @objc private func showBookmarks() {
@@ -245,27 +261,51 @@ extension BrowserViewController: WKNavigationDelegate {
             return
         }
 
-        // Проверяем сертификат с помощью нашего изолированного CustomTrustManager
-        if CustomTrustManager.shared.evaluate(serverTrust: serverTrust) {
+        let host = challenge.protectionSpace.host
+        NSLog("[WebView] Получен TLS Challenge для хоста: %@", host)
+
+        if CustomTrustManager.shared.evaluate(serverTrust: serverTrust, host: host) {
+            NSLog("[WebView] Доверие подтверждено для %@", host)
             completionHandler(.useCredential, URLCredential(trust: serverTrust))
             return
         }
 
+        NSLog("[WebView] Отклонено доверие для %@", host)
         completionHandler(.performDefaultHandling, nil)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         progressView.isHidden = true
+        NSLog("[WebView] Загрузка страницы успешно завершена")
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         progressView.isHidden = true
-        NSLog("[WebView] Ошибка навигации: %@", error.localizedDescription)
+        showErrorAlert(title: "Ошибка загрузки", error: error)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         progressView.isHidden = true
-        NSLog("[WebView] Ошибка предварительной навигации: %@", error.localizedDescription)
+        showErrorAlert(title: "Ошибка подключения", error: error)
+    }
+
+    private func showErrorAlert(title: String, error: Error) {
+        let nsError = error as NSError
+        NSLog("[WebView] %@: Code=%ld, Domain=%@, Desc=%@", title, nsError.code, nsError.domain, nsError.localizedDescription)
+        
+        let message = """
+        Код ошибки: \(nsError.code)
+        Домен: \(nsError.domain)
+        Описание: \(nsError.localizedDescription)
+        
+        Хост: \(webView.url?.host ?? "—")
+        """
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Повторить", style: .default, handler: { [weak self] _ in
+            self?.webView.reload()
+        }))
+        alert.addAction(UIAlertAction(title: "Закрыть", style: .cancel))
+        present(alert, animated: true)
     }
 }
 
