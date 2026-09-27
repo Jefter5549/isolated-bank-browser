@@ -33,6 +33,12 @@ jobs:
       - name: TLS Security Regression Tests
         run: OPENSSL_BIN="$(brew --prefix openssl@3)/bin/openssl" bash scripts/test-tls.sh
 
+      - name: Browser Preferences Regression Tests
+        run: bash scripts/test-browser.sh
+
+      - name: WebKit Cleartext Blocking Tests
+        run: bash scripts/test-web-content.sh
+
       - name: Generate Xcode Project
         run: xcodegen generate
 
