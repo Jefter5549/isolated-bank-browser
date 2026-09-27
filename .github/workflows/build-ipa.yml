@@ -39,6 +39,9 @@ jobs:
       - name: WebKit Cleartext Blocking Tests
         run: bash scripts/test-web-content.sh
 
+      - name: Browser Tabs and Popup Tests
+        run: bash scripts/test-tabs.sh
+
       - name: Generate Xcode Project
         run: xcodegen generate
 

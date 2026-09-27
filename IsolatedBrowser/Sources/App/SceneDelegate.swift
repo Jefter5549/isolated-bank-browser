@@ -3,13 +3,15 @@ import UIKit
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     var window: UIWindow?
+    private var tabs: BrowserTabCoordinator?
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = (scene as? UIWindowScene) else { return }
 
         let window = UIWindow(windowScene: windowScene)
-        let browserVC = BrowserViewController()
-        let navController = UINavigationController(rootViewController: browserVC)
+        let coordinator = BrowserTabCoordinator()
+        tabs = coordinator
+        let navController = coordinator.navigationController
         
         window.rootViewController = navController
         self.window = window

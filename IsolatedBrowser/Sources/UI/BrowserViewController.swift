@@ -3,7 +3,7 @@ import WebKit
 
 final class BrowserViewController: UIViewController {
     private let preferences = BrowserPreferences()
-    private var webView: WKWebView!
+    private(set) var webView: WKWebView!
     private let addressBar = UIView()
     private let urlTextField = UITextField()
     private let reloadButton = UIButton(type: .system)
@@ -22,6 +22,44 @@ final class BrowserViewController: UIViewController {
     private var activeNavigation: WKNavigation?
     private var contentReady = false
     private var preparingContent = false
+    private var isClosed = false
+
+    private let initialURL: URL?
+    private let suppliedConfiguration: WKWebViewConfiguration?
+    private var secureRules: WKContentRuleList?
+    weak var opener: BrowserViewController?
+    var onShowTabs: (() -> Void)?
+    var onCreateWindow: ((WKWebViewConfiguration, WKContentRuleList) -> WKWebView?)?
+    var onCloseWindow: (() -> Void)?
+    private var tabsButton: UIBarButtonItem!
+    var tabCount = 1 { didSet { updateTabCount() } }
+    var tabTitle: String { webView?.title ?? title ?? "Новая вкладка" }
+    var tabHost: String { (webView?.url ?? requestedURL)?.host ?? "Новая вкладка" }
+
+    init(initialURL: URL? = BrowserPreferences().defaultBank.url,
+         configuration: WKWebViewConfiguration? = nil, rules: WKContentRuleList? = nil) {
+        self.initialURL = initialURL
+        self.suppliedConfiguration = configuration
+        self.secureRules = rules
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("Use init(initialURL:)") }
+
+    func closeTab() {
+        isClosed = true
+        observations.removeAll()
+        webView?.stopLoading()
+        webView?.navigationDelegate = nil
+        webView?.uiDelegate = nil
+    }
+
+    private func updateTabCount() {
+        tabsButton?.title = "▣ \(tabCount)"
+        tabsButton?.accessibilityLabel = "Вкладки: \(tabCount)"
+    }
+
+    @objc private func showTabs() { view.endEditing(true); onShowTabs?() }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -34,7 +72,7 @@ final class BrowserViewController: UIViewController {
         setupErrorView()
         setupLayout()
         observeWebView()
-        loadURL(preferences.defaultBank.url)
+        if let url = initialURL { loadURL(url) }
     }
 
     private func setupNavigationBar() {
@@ -97,7 +135,11 @@ final class BrowserViewController: UIViewController {
     }
 
     private func setupWebView() {
-        let config = WKWebViewConfiguration()
+        let config = suppliedConfiguration ?? WKWebViewConfiguration()
+        if let rules = secureRules {
+            config.userContentController.add(rules)
+            contentReady = true
+        }
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
         config.defaultWebpagePreferences.allowsContentJavaScript = true
@@ -125,7 +167,10 @@ final class BrowserViewController: UIViewController {
         homeButton.accessibilityIdentifier = "browser.home"
         updateDefaultBankLabel()
         func space() -> UIBarButtonItem { UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil) }
-        toolbar.items = [backButton, space(), forwardButton, space(), homeButton, space(), shareButton]
+        tabsButton = UIBarButtonItem(title: "", style: .plain, target: self, action: #selector(showTabs))
+        tabsButton.accessibilityIdentifier = "browser.tabs"
+        updateTabCount()
+        toolbar.items = [backButton, space(), forwardButton, space(), homeButton, space(), shareButton, space(), tabsButton]
         let appearance = UIToolbarAppearance()
         appearance.configureWithDefaultBackground()
         toolbar.standardAppearance = appearance
@@ -279,7 +324,7 @@ final class BrowserViewController: UIViewController {
             forIdentifier: SecureWebContent.ruleIdentifier,
             encodedContentRuleList: SecureWebContent.rules
         ) { [weak self] ruleList, error in
-            guard let self = self else { return }
+            guard let self = self, !self.isClosed else { return }
             self.preparingContent = false
             guard error == nil, let ruleList = ruleList else {
                 self.webView.isHidden = true
@@ -289,6 +334,7 @@ final class BrowserViewController: UIViewController {
                 return
             }
             self.webView.configuration.userContentController.add(ruleList)
+            self.secureRules = ruleList
             self.contentReady = true
             if let url = self.requestedURL { self.loadURL(url) }
         }
@@ -406,16 +452,19 @@ extension BrowserViewController: WKUIDelegate {
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if navigationAction.targetFrame == nil {
-            if contentReady && HTTPSNavigationPolicy.allows(navigationAction.request.url) { webView.load(navigationAction.request) }
-            else { showHTTPWarning() }
-        }
-        return nil
+        guard navigationAction.targetFrame == nil, contentReady, let rules = secureRules else { return nil }
+        guard HTTPSNavigationPolicy.allows(navigationAction.request.url) else { showHTTPWarning(); return nil }
+        // Return WebKit's supplied configuration to preserve POST data and window.opener.
+        return onCreateWindow?(configuration, rules)
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        if suppliedConfiguration != nil { onCloseWindow?() }
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
-        guard presentedViewController == nil else { completionHandler(); return }
+        guard viewIfLoaded?.window != nil, presentedViewController == nil else { completionHandler(); return }
         let alert = UIAlertController(title: webView.url?.host, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler() })
         present(alert, animated: true)
@@ -423,7 +472,7 @@ extension BrowserViewController: WKUIDelegate {
 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
-        guard presentedViewController == nil else { completionHandler(false); return }
+        guard viewIfLoaded?.window != nil, presentedViewController == nil else { completionHandler(false); return }
         let alert = UIAlertController(title: webView.url?.host, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Отмена", style: .cancel) { _ in completionHandler(false) })
         alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler(true) })
