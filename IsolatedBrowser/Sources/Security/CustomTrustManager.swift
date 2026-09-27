@@ -15,6 +15,11 @@ final class CustomTrustManager {
         loadCertificates()
     }
 
+    // Позволяет проверять тот же механизм с локальным тестовым CA без изменения Keychain.
+    init(customAnchors: [SecCertificate]) {
+        self.customAnchors = customAnchors
+    }
+
     private func loadCertificates() {
         if let rootData = Data(base64Encoded: rootCABase64),
            let rootCert = SecCertificateCreateWithData(nil, rootData as CFData) {
@@ -40,59 +45,42 @@ final class CustomTrustManager {
         NSLog("[CustomTrustManager] Успешно загружено %d якорей Минцифры", customAnchors.count)
     }
 
-    /// Проверяет цепочку доверия сервера с поддержкой сертификатов Минцифры
-    func evaluate(serverTrust: SecTrust, host: String? = nil) -> Bool {
-        guard !customAnchors.isEmpty else { return false }
-
-        // 1. Попытка стандартной валидации с добавлением якорей
-        SecTrustSetAnchorCertificates(serverTrust, customAnchors as CFArray)
-        SecTrustSetAnchorCertificatesOnly(serverTrust, false)
-
-        var error: CFError?
-        if SecTrustEvaluateWithError(serverTrust, &error) {
-            NSLog("[CustomTrustManager] TLS валидация успешна со стандартной политикой")
-            return true
+    /// Проверяет цепочку, срок действия, назначение сертификата и имя HTTPS-сервера.
+    /// Встроенные CA дополняют системное доверие только для этого SecTrust.
+    func evaluate(serverTrust: SecTrust, host: String) -> Bool {
+        guard !host.isEmpty,
+              host == host.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
         }
 
-        // 2. Если Apple SSL Policy отклонила сертификат из-за отсутствия в публичных CT логах Apple,
-        // переключаем на Basic X.509 валидацию криптографической подписи по цепочке против нашего Root CA:
-        let basicPolicy = SecPolicyCreateBasicX509()
-        SecTrustSetPolicies(serverTrust, basicPolicy)
-        SecTrustSetAnchorCertificates(serverTrust, customAnchors as CFArray)
-        SecTrustSetAnchorCertificatesOnly(serverTrust, false)
-
-        if SecTrustEvaluateWithError(serverTrust, &error) {
-            NSLog("[CustomTrustManager] TLS валидация успешна через Basic X.509 политику")
-            return true
+        // Сохраняем ограничения вызывающей стороны и обязательно добавляем SSL hostname policy.
+        var existingPolicies: CFArray?
+        guard SecTrustCopyPolicies(serverTrust, &existingPolicies) == errSecSuccess,
+              let policies = existingPolicies as? [SecPolicy] else {
+            return false
+        }
+        let sslPolicy = SecPolicyCreateSSL(true, host as CFString)
+        guard SecTrustSetPolicies(serverTrust, (policies + [sslPolicy]) as CFArray) == errSecSuccess,
+              SecTrustSetAnchorCertificates(serverTrust, customAnchors as CFArray) == errSecSuccess,
+              SecTrustSetAnchorCertificatesOnly(serverTrust, false) == errSecSuccess else {
+            return false
         }
 
-        // 3. Fallback: Проверка принадлежности цепочки к Минцифры РФ
-        if isRussianMinistryCertificate(serverTrust: serverTrust) {
-            NSLog("[CustomTrustManager] Обнаружен сертификат Минцифры РФ — принудительно доверяем сессии")
-            return true
-        }
-
-        if let err = error {
-            NSLog("[CustomTrustManager] Ошибка валидации: %@", err.localizedDescription)
-        }
-        return false
+        // Никаких повторных попыток с ослабленной политикой или доверием по имени CA.
+        return SecTrustEvaluateWithError(serverTrust, nil)
     }
 
-    private func isRussianMinistryCertificate(serverTrust: SecTrust) -> Bool {
-        let certCount = SecTrustGetCertificateCount(serverTrust)
-        for i in 0..<certCount {
-            if let cert = SecTrustGetCertificateAtIndex(serverTrust, i) {
-                let summary = (SecCertificateCopySubjectSummary(cert) as String? ?? "").lowercased()
-                if summary.contains("russian trusted") ||
-                   summary.contains("ministry of digital") ||
-                   summary.contains("creditural") ||
-                   summary.contains("vtb") ||
-                   summary.contains("sberbank") ||
-                   summary.contains("минцифры") {
-                    return true
-                }
-            }
+    func handle(_ challenge: URLAuthenticationChallenge,
+                completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust else {
+            completionHandler(.performDefaultHandling, nil)
+            return
         }
-        return false
+        guard let serverTrust = challenge.protectionSpace.serverTrust,
+              evaluate(serverTrust: serverTrust, host: challenge.protectionSpace.host) else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        completionHandler(.useCredential, URLCredential(trust: serverTrust))
     }
 }
