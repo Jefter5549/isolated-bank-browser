@@ -7,10 +7,31 @@ final class BrowserTabCoordinator {
     private var tabs: [BrowserViewController] = []
     private weak var picker: BrowserTabsViewController?
 
-    init() { _ = addTab() }
+    private let sessionStore: BrowserSessionStore
+    private var restoring = true
+
+    init(sessionStore: BrowserSessionStore = BrowserSessionStore()) {
+        self.sessionStore = sessionStore
+        if let session = sessionStore.load() {
+            for url in session.urls {
+                _ = addTab(initialURL: url ?? BrowserPreferences().defaultBank.url, activate: false)
+            }
+            select(tabs[session.selectedIndex])
+        } else {
+            _ = addTab()
+        }
+        restoring = false
+        saveSession()
+    }
+
+    func saveSession() {
+        guard !restoring, !tabs.isEmpty else { return }
+        let index = tabs.firstIndex { $0 === navigationController.topViewController } ?? 0
+        sessionStore.save(BrowserSession(urls: tabs.map { $0.restorationURL }, selectedIndex: index))
+    }
 
     @discardableResult
-    private func addTab(configuration: WKWebViewConfiguration? = nil,
+    private func addTab(initialURL: URL? = nil, activate: Bool = true, configuration: WKWebViewConfiguration? = nil,
                         rules: WKContentRuleList? = nil, opener: BrowserViewController? = nil) -> BrowserViewController? {
         guard tabs.count < 12 else {
             let alert = UIAlertController(title: "Открыто 12 вкладок", message: "Закройте ненужную вкладку, чтобы открыть новую.", preferredStyle: .alert)
@@ -18,8 +39,9 @@ final class BrowserTabCoordinator {
             (navigationController.presentedViewController ?? navigationController).present(alert, animated: true)
             return nil
         }
-        let browser = BrowserViewController(initialURL: configuration == nil ? BrowserPreferences().defaultBank.url : nil,
+        let browser = BrowserViewController(initialURL: configuration == nil ? (initialURL ?? BrowserPreferences().defaultBank.url) : nil,
                                             configuration: configuration, rules: rules)
+        browser.onAddressChanged = { [weak self] in self?.saveSession() }
         browser.opener = opener
         browser.onShowTabs = { [weak self] in self?.showTabs() }
         browser.onCreateWindow = { [weak self, weak browser] config, rules in
@@ -29,15 +51,17 @@ final class BrowserTabCoordinator {
             if let browser = browser { self?.close(browser) }
         }
         tabs.append(browser)
-        select(browser)
-        browser.loadViewIfNeeded()
+        if activate { select(browser); browser.loadViewIfNeeded() }
         updateCounts()
+        saveSession()
         return browser
     }
 
     private func select(_ browser: BrowserViewController) {
         navigationController.topViewController?.view.endEditing(true)
         navigationController.setViewControllers([browser], animated: false)
+        browser.loadViewIfNeeded()
+        saveSession()
     }
 
     private func close(_ browser: BrowserViewController) {
@@ -51,6 +75,7 @@ final class BrowserTabCoordinator {
             select(parent ?? tabs[min(index, tabs.count - 1)])
         }
         updateCounts()
+        saveSession()
     }
 
     private func updateCounts() {
