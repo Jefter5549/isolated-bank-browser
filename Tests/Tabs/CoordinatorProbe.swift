@@ -8,7 +8,14 @@ extension BrowserTabCoordinator {
                 results.append("\(value ? "PASS" : "FAIL") \(name)")
                 if !value { throw NSError(domain: name, code: 1) }
             }
-            func pause() async { try? await Task.sleep(nanoseconds: 700_000_000) }
+            func waitUntil(timeout: TimeInterval = 10, condition: () async throws -> Bool) async throws {
+                let start = Date()
+                while Date().timeIntervalSince(start) < timeout {
+                    if try await condition() { return }
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                }
+                throw NSError(domain: "waitUntilTimeout", code: 1)
+            }
             do {
                 let rules = try await WKContentRuleListStore.default().compileContentRuleList(
                     forIdentifier: SecureWebContent.ruleIdentifier, encodedContentRuleList: SecureWebContent.rules)
@@ -18,7 +25,10 @@ extension BrowserTabCoordinator {
                 let original = tabs[0]
                 close(original)
                 first.webView.loadHTMLString("<title>Tab probe</title><input id='memo'><script>window.marker=42</script>", baseURL: URL(string: "https://tabs.invalid"))
-                await pause()
+                try await waitUntil {
+                    let ready = try? await first.webView.evaluateJavaScript("document.getElementById('memo') !== null && window.marker === 42") as? Bool
+                    return ready == true
+                }
                 _ = try await first.webView.evaluateJavaScript("document.getElementById('memo').value='retained'; 1")
                 let second = addTab(configuration: WKWebViewConfiguration(), rules: rules)!
                 try check(tabs.count == 2 && first.webView !== second.webView, "independent web views")
@@ -30,13 +40,17 @@ extension BrowserTabCoordinator {
                 let background = addTab(configuration: WKWebViewConfiguration(), rules: rules)!
                 select(first)
                 _ = try await first.webView.evaluateJavaScript("window.child=window.open('about:blank'); 1")
-                await pause()
+                try await waitUntil { self.tabs.count == 3 }
                 try check(tabs.count == 3, "window.open creates a tab")
                 let child = tabs.last!
+                try await waitUntil {
+                    let val = try? await child.webView.evaluateJavaScript("window.opener && window.opener.marker === 42") as? Bool
+                    return val == true
+                }
                 let opener = try await child.webView.evaluateJavaScript("window.opener.marker")
                 try check((opener as? NSNumber)?.intValue == 42, "popup retains window.opener")
                 _ = try await child.webView.evaluateJavaScript("window.close(); 1")
-                await pause()
+                try await waitUntil { self.tabs.count == 2 }
                 try check(tabs.count == 2 && navigationController.topViewController === first, "window.close returns to actual source")
                 close(background)
                 close(first)
