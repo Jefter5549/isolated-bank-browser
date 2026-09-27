@@ -178,6 +178,7 @@ final class BrowserViewController: UIViewController {
     }
 
     private func loadURL(_ url: URL) {
+        guard HTTPSNavigationPolicy.allows(url) else { return }
         urlTextField.text = url.absoluteString
         let request = URLRequest(url: url)
         webView.load(request)
@@ -238,20 +239,19 @@ extension BrowserViewController: WKNavigationDelegate {
                  didReceive challenge: URLAuthenticationChallenge, 
                  completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
 
-        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
-              let serverTrust = challenge.protectionSpace.serverTrust else {
-            completionHandler(.performDefaultHandling, nil)
-            return
-        }
+        CustomTrustManager.shared.handle(challenge, completionHandler: completionHandler)
+    }
 
-        let host = challenge.protectionSpace.host
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(HTTPSNavigationPolicy.allows(navigationAction.request.url) ? .allow : .cancel)
+    }
 
-        if CustomTrustManager.shared.evaluate(serverTrust: serverTrust, host: host) {
-            completionHandler(.useCredential, URLCredential(trust: serverTrust))
-            return
-        }
-
-        completionHandler(.performDefaultHandling, nil)
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationResponse: WKNavigationResponse,
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        decisionHandler(HTTPSNavigationPolicy.allows(navigationResponse.response.url) ? .allow : .cancel)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -291,7 +291,8 @@ extension BrowserViewController: WKUIDelegate {
                  createWebViewWith configuration: WKWebViewConfiguration, 
                  for navigationAction: WKNavigationAction, 
                  windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if navigationAction.targetFrame == nil {
+        if navigationAction.targetFrame == nil,
+           HTTPSNavigationPolicy.allows(navigationAction.request.url) {
             webView.load(navigationAction.request)
         }
         return nil
