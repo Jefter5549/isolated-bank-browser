@@ -7,7 +7,7 @@
 Внешних пакетных зависимостей, backend и тестовых targets Xcode нет. TLS-регрессии запускаются отдельным macOS Swift executable из `Tests/TLS/main.swift`.
 
 - `IsolatedBrowser/Sources/App/AppDelegate.swift`: точка входа, инициализация менеджера доверия.
-- `IsolatedBrowser/Sources/App/SceneDelegate.swift`: окно и UINavigationController с BrowserViewController.
+- `IsolatedBrowser/Sources/App/SceneDelegate.swift`: окно и BrowserTabCoordinator с UINavigationController. Координатор удерживает отдельный BrowserViewController для каждой из максимум 12 вкладок; переключение не перезагружает страницы. Новая вкладка открывает банк по умолчанию, закрытие последней создаёт новую. Вкладки живут в памяти, cookies общие. JS popup использует конфигурацию WebKit и получает HTTP/WS blocker до первой загрузки.
 - `IsolatedBrowser/Sources/UI/BrowserViewController.swift`: адресная строка, Google-поиск, банковские закладки, навигация, обновление, share sheet, KVO, WebKit delegates и передача TLS challenge менеджеру доверия. Начальная страница берётся из `BrowserPreferences.defaultBank`; для новой установки — КУБ. Выбор хранится в UserDefaults, смена банка в браузере не меняет предпочтение.
 - `IsolatedBrowser/Sources/Security/CustomTrustManager.swift`: singleton, CA из Base64 и bundle, строгая оценка SecTrust с hostname, обработка authentication challenge.
 - `IsolatedBrowser/Sources/Models/Bank.swift`: каталог банков и сохранение банка по умолчанию. `BrowserAddress.swift`: адрес/поисковый запрос.
@@ -37,6 +37,8 @@ CI запускается на push и pull_request к `master`/`main`, а та�
 
 Для TLS-регрессий на macOS: `bash scripts/test-tls.sh` (Xcode CLI, OpenSSL 3, Python 3). `OPENSSL_BIN` задаёт путь к OpenSSL 3; `--live` дополнительно проверяет публичный HTTPS через URLSession. Тесты генерируют временные CA/ключи и не меняют Keychain. Это не заменяет проверку WKWebView на iOS.
 
+Вкладки и JS popup: `bash scripts/test-tabs.sh` (macOS Catalyst, XcodeGen; отдельный тестовый bundle, сохранение формы, opener, закрытие последней вкладки).
+
 Проверки настроек и адресов: `bash scripts/test-browser.sh`. Проверки реального WKWebView на macOS: `bash scripts/test-web-content.sh` (локальный сервер и временный тестовый bundle). Последние проверяют positive control и блокировку HTTP/WS для image/script/style/frame/fetch/websocket.
 
 При изменениях Swift выполнить сборку. При изменениях поведения WebKit/UI дополнительно проверить на симуляторе или устройстве затронутые сценарии: адрес/поиск, переходы назад/вперёд, обновление, закладки, share sheet на iPad, окна JavaScript и обработку ошибок.
@@ -53,7 +55,7 @@ CI запускается на push и pull_request к `master`/`main`, а та�
 - Глобальные arbitrary loads запрещены. Для доменов банков из каталога и их поддоменов настроены точечные ATS-исключения, позволяющие WKWebView принять строго проверенную цепочку встроенного CA. TLS 1.2 и PFS сохранены. HTTP/WS блокируются content rules до загрузки любых ресурсов; навигация дополнительно проверяет HTTPSNavigationPolicy. Не отключать строгую SecTrust-проверку и не начинать загрузки до установки правил.
 - Используется стандартная конфигурация WKWebView без явного non-persistent data store и разделения сессий по банкам. Изоляция CA от системы не означает приватность или изоляцию банковских сессий друг от друга.
 - User-Agent зафиксирован под iOS 17.5.
-- В Info.plist указаны версия `1.0.1` и build `2`, хотя сообщение исходного коммита упоминает `v1.0.2`.
+- В Info.plist указаны версия `1.1.0` и build `3`.
 
 При исправлениях сохранять область доверия внутри приложения; не устанавливать CA в системное хранилище. Не добавлять обходы TLS-проверок для устранения ошибок загрузки.
 
