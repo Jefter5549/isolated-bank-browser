@@ -28,7 +28,10 @@ jobs:
           xcodebuild -version
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: brew install xcodegen openssl@3
+
+      - name: TLS Security Regression Tests
+        run: OPENSSL_BIN="$(brew --prefix openssl@3)/bin/openssl" bash scripts/test-tls.sh
 
       - name: Generate Xcode Project
         run: xcodegen generate
