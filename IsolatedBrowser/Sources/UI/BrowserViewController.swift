@@ -28,13 +28,15 @@ final class BrowserViewController: UIViewController {
     private let suppliedConfiguration: WKWebViewConfiguration?
     private var secureRules: WKContentRuleList?
     weak var opener: BrowserViewController?
+    var onAddressChanged: (() -> Void)?
+    var restorationURL: URL? { BrowserSession.restorableURL(webView?.url ?? requestedURL ?? initialURL) }
     var onShowTabs: (() -> Void)?
     var onCreateWindow: ((WKWebViewConfiguration, WKContentRuleList) -> WKWebView?)?
     var onCloseWindow: (() -> Void)?
     private var tabsButton: UIBarButtonItem!
     var tabCount = 1 { didSet { updateTabCount() } }
     var tabTitle: String { webView?.title ?? title ?? "Новая вкладка" }
-    var tabHost: String { (webView?.url ?? requestedURL)?.host ?? "Новая вкладка" }
+    var tabHost: String { (webView?.url ?? requestedURL ?? initialURL)?.host ?? "Новая вкладка" }
 
     init(initialURL: URL? = BrowserPreferences().defaultBank.url,
          configuration: WKWebViewConfiguration? = nil, rules: WKContentRuleList? = nil) {
@@ -136,6 +138,7 @@ final class BrowserViewController: UIViewController {
 
     private func setupWebView() {
         let config = suppliedConfiguration ?? WKWebViewConfiguration()
+        if suppliedConfiguration == nil { config.websiteDataStore = .default() }
         if let rules = secureRules {
             config.userContentController.add(rules)
             contentReady = true
@@ -265,7 +268,10 @@ final class BrowserViewController: UIViewController {
             webView.observe(\.isLoading, options: [.new]) { [weak self] _, _ in self?.updateControls() },
             webView.observe(\.canGoBack, options: [.new]) { [weak self] _, _ in self?.updateControls() },
             webView.observe(\.canGoForward, options: [.new]) { [weak self] _, _ in self?.updateControls() },
-            webView.observe(\.url, options: [.new]) { [weak self] _, _ in self?.updateControls() }
+            webView.observe(\.url, options: [.new]) { [weak self] _, _ in
+                self?.updateControls()
+                self?.onAddressChanged?()
+            }
         ]
         updateControls()
     }
