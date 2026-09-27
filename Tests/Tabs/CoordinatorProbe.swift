@@ -24,7 +24,7 @@ extension BrowserTabCoordinator {
                 let first = addTab(configuration: config, rules: rules)!
                 let original = tabs[0]
                 close(original)
-                first.webView.loadHTMLString("<title>Tab probe</title><input id='memo'><script>window.marker=42</script>", baseURL: URL(string: "https://tabs.invalid"))
+                let firstNavigation = first.webView.loadHTMLString("<title>Tab probe</title><input id='memo'><script>window.marker=42</script>", baseURL: URL(string: "https://tabs.invalid"))
                 try await waitUntil {
                     let ready = try? await first.webView.evaluateJavaScript("document.getElementById('memo') !== null && window.marker === 42") as? Bool
                     return ready == true
@@ -52,9 +52,42 @@ extension BrowserTabCoordinator {
                 _ = try await child.webView.evaluateJavaScript("window.close(); 1")
                 try await waitUntil { self.tabs.count == 2 }
                 try check(tabs.count == 2 && navigationController.topViewController === first, "window.close returns to actual source")
+                let failedURL = URL(string: "https://failed.invalid/account")!
+                let failure = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet,
+                                      userInfo: [NSURLErrorFailingURLErrorKey: failedURL])
+                first.webView(first.webView, didFailProvisionalNavigation: firstNavigation, withError: failure)
+                try check(first.webView.url?.host == "tabs.invalid", "failure fixture retains previous WebKit page")
+                try check(first.restorationURL == failedURL, "failed destination replaces previous page for restoration")
+                try check(sessionStore.load()?.urls.first == failedURL, "failure immediately persists destination without background event")
+                let failureRestored = BrowserTabCoordinator(sessionStore: sessionStore)
+                try check(failureRestored.tabs[0].restorationURL == failedURL, "failed destination survives coordinator recreation")
+                failureRestored.tabs.forEach { $0.closeTab() }
                 close(background)
                 close(first)
                 try check(tabs.count == 1 && tabs[0] !== first, "closing last tab creates default bank tab")
+                let suite = "tab-restoration-tests-" + UUID().uuidString
+                let defaults = UserDefaults(suiteName: suite)!
+                defer { defaults.removePersistentDomain(forName: suite) }
+                let store = BrowserSessionStore(defaults: defaults)
+                let urls = [URL(string: "https://first.invalid/path?q=1#part")!, URL(string: "https://second.invalid/")!]
+                store.save(BrowserSession(urls: urls, selectedIndex: 1))
+                let restored = BrowserTabCoordinator(sessionStore: store)
+                try check(restored.tabs.count == 2 && restored.tabs.map { $0.restorationURL } == urls.map(Optional.some), "restores tab order and complete addresses")
+                try check(restored.navigationController.topViewController === restored.tabs[1], "restores selected tab")
+                try check(!restored.tabs[0].isViewLoaded, "background restored tab stays unloaded")
+                try check(restored.tabs[1].webView.configuration.websiteDataStore.isPersistent, "restored tabs use persistent website storage")
+                restored.select(restored.tabs[0])
+                let switched = BrowserTabCoordinator(sessionStore: store)
+                try check(switched.navigationController.topViewController === switched.tabs[0], "selection survives coordinator recreation")
+                restored.close(restored.tabs[1])
+                let afterClose = BrowserTabCoordinator(sessionStore: store)
+                try check(afterClose.tabs.count == 1 && afterClose.tabs[0].restorationURL == urls[0], "closed tab stays closed on restore")
+                store.save(BrowserSession(urls: [URL(string: "http://unsafe.invalid"), URL(string: "https://user:pass@example.com")], selectedIndex: 99))
+                let sanitized = store.load()!
+                try check(sanitized.urls.allSatisfy { $0 == nil } && sanitized.selectedIndex == 1, "invalid addresses and selected index are sanitized")
+                defaults.set(Data("broken".utf8), forKey: "browser.tabs.v1")
+                try check(store.load() == nil, "corrupt session falls back to default")
+                for coordinator in [restored, switched, afterClose] { coordinator.tabs.forEach { $0.closeTab() } }
                 results.append("SUCCESS")
             } catch {
                 results.append("ERROR \(error)")
