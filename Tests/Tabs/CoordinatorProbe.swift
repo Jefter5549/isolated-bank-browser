@@ -24,7 +24,7 @@ extension BrowserTabCoordinator {
                 let first = addTab(configuration: config, rules: rules)!
                 let original = tabs[0]
                 close(original)
-                first.webView.loadHTMLString("<title>Tab probe</title><input id='memo'><script>window.marker=42</script>", baseURL: URL(string: "https://tabs.invalid"))
+                let firstNavigation = first.webView.loadHTMLString("<title>Tab probe</title><input id='memo'><script>window.marker=42</script>", baseURL: URL(string: "https://tabs.invalid"))
                 try await waitUntil {
                     let ready = try? await first.webView.evaluateJavaScript("document.getElementById('memo') !== null && window.marker === 42") as? Bool
                     return ready == true
@@ -52,6 +52,16 @@ extension BrowserTabCoordinator {
                 _ = try await child.webView.evaluateJavaScript("window.close(); 1")
                 try await waitUntil { self.tabs.count == 2 }
                 try check(tabs.count == 2 && navigationController.topViewController === first, "window.close returns to actual source")
+                let failedURL = URL(string: "https://failed.invalid/account")!
+                let failure = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet,
+                                      userInfo: [NSURLErrorFailingURLErrorKey: failedURL])
+                first.webView(first.webView, didFailProvisionalNavigation: firstNavigation, withError: failure)
+                try check(first.webView.url?.host == "tabs.invalid", "failure fixture retains previous WebKit page")
+                try check(first.restorationURL == failedURL, "failed destination replaces previous page for restoration")
+                try check(sessionStore.load()?.urls.first == failedURL, "failure immediately persists destination without background event")
+                let failureRestored = BrowserTabCoordinator(sessionStore: sessionStore)
+                try check(failureRestored.tabs[0].restorationURL == failedURL, "failed destination survives coordinator recreation")
+                failureRestored.tabs.forEach { $0.closeTab() }
                 close(background)
                 close(first)
                 try check(tabs.count == 1 && tabs[0] !== first, "closing last tab creates default bank tab")

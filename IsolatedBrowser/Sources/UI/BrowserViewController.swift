@@ -29,7 +29,12 @@ final class BrowserViewController: UIViewController {
     private var secureRules: WKContentRuleList?
     weak var opener: BrowserViewController?
     var onAddressChanged: (() -> Void)?
-    var restorationURL: URL? { BrowserSession.restorableURL(webView?.url ?? requestedURL ?? initialURL) }
+    var restorationURL: URL? {
+        let url = isViewLoaded && !errorView.isHidden
+            ? requestedURL
+            : (webView?.url ?? requestedURL ?? initialURL)
+        return BrowserSession.restorableURL(url)
+    }
     var onShowTabs: (() -> Void)?
     var onCreateWindow: ((WKWebViewConfiguration, WKContentRuleList) -> WKWebView?)?
     var onCloseWindow: (() -> Void)?
@@ -388,6 +393,7 @@ final class BrowserViewController: UIViewController {
             errorMessage.text = "\(requestedURL?.host ?? "Сайт") сейчас недоступен. Попробуйте загрузить страницу ещё раз."
         }
         updateControls()
+        onAddressChanged?()
     }
 }
 
