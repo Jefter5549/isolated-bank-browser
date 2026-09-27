@@ -32,7 +32,7 @@ open -n "$test_app"
 for attempt in {1..45}; do
   if [ -f "$test_dir/results.txt" ]; then
     cat "$test_dir/results.txt"
-    rg -q '^SUCCESS$' "$test_dir/results.txt"
+    grep -q '^SUCCESS$' "$test_dir/results.txt"
     exit $?
   fi
   sleep 1
