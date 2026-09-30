@@ -4,11 +4,15 @@ import WebKit
 final class BrowserViewController: UIViewController {
     private let preferences = BrowserPreferences()
     private(set) var webView: WKWebView!
+    private let topBarView = UIView()
     private let addressBar = UIView()
     private let urlTextField = UITextField()
     private let reloadButton = UIButton(type: .system)
+    private let banksButton = UIButton(type: .system)
     private let progressView = UIProgressView(progressViewStyle: .bar)
     private let toolbar = UIToolbar()
+    private var webViewBottomToToolbarConstraint: NSLayoutConstraint!
+    private var webViewBottomToKeyboardConstraint: NSLayoutConstraint!
     private let refreshControl = UIRefreshControl()
     private let errorView = UIScrollView()
     private let errorContent = UIStackView()
@@ -64,9 +68,15 @@ final class BrowserViewController: UIViewController {
         observations.removeAll()
         NotificationCenter.default.removeObserver(self, name: .vpnStatusDidChange, object: nil)
         NotificationCenter.default.removeObserver(self, name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
         webView?.stopLoading()
         webView?.navigationDelegate = nil
         webView?.uiDelegate = nil
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     private func updateTabCount() {
@@ -75,6 +85,11 @@ final class BrowserViewController: UIViewController {
     }
 
     @objc private func showTabs() { view.endEditing(true); onShowTabs?() }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(true, animated: animated)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -92,18 +107,18 @@ final class BrowserViewController: UIViewController {
                                                name: .vpnStatusDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleVPNChange),
                                                name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow),
+                                               name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide),
+                                               name: UIResponder.keyboardWillHideNotification, object: nil)
         if let url = initialURL {
             handleInitialLaunch(url: url)
         }
     }
 
     private func setupNavigationBar() {
-        title = "Браузер"
+        navigationController?.setNavigationBarHidden(true, animated: false)
         navigationItem.largeTitleDisplayMode = .never
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
-        navigationController?.navigationBar.standardAppearance = appearance
-        navigationController?.navigationBar.scrollEdgeAppearance = appearance
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Банки", style: .plain,
                                                            target: self, action: #selector(showBanks))
         navigationItem.rightBarButtonItem?.accessibilityLabel = "Банки и стартовая страница"
@@ -111,15 +126,19 @@ final class BrowserViewController: UIViewController {
     }
 
     private func setupAddressBar() {
+        topBarView.backgroundColor = .systemBackground
+
         addressBar.backgroundColor = .secondarySystemBackground
-        addressBar.layer.cornerRadius = 14
+        addressBar.layer.cornerRadius = 12
         addressBar.layer.cornerCurve = .continuous
+
         let globe = UIImageView(image: UIImage(systemName: "globe"))
         globe.tintColor = .secondaryLabel
         globe.contentMode = .scaleAspectFit
         globe.isAccessibilityElement = false
+
         urlTextField.placeholder = "Сайт или поисковый запрос"
-        urlTextField.font = .preferredFont(forTextStyle: .body)
+        urlTextField.font = .systemFont(ofSize: 14, weight: .regular)
         urlTextField.adjustsFontForContentSizeCategory = true
         urlTextField.keyboardType = .webSearch
         urlTextField.autocapitalizationType = .none
@@ -131,27 +150,60 @@ final class BrowserViewController: UIViewController {
         urlTextField.delegate = self
         urlTextField.accessibilityLabel = "Адрес сайта или поиск"
         urlTextField.accessibilityIdentifier = "browser.address"
-        reloadButton.setImage(UIImage(systemName: "arrow.clockwise"), for: .normal)
+
+        let reloadConfig = UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        reloadButton.setImage(UIImage(systemName: "arrow.clockwise", withConfiguration: reloadConfig), for: .normal)
         reloadButton.accessibilityLabel = "Обновить страницу"
         reloadButton.accessibilityIdentifier = "browser.reload"
         reloadButton.addTarget(self, action: #selector(reloadOrStop), for: .touchUpInside)
+
+        var banksConfig = UIButton.Configuration.tinted()
+        banksConfig.title = "Банки"
+        banksConfig.cornerStyle = .capsule
+        banksConfig.buttonSize = .mini
+        banksConfig.contentInsets = NSDirectionalEdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10)
+        banksButton.configuration = banksConfig
+        banksButton.accessibilityLabel = "Банки и стартовая страница"
+        banksButton.accessibilityIdentifier = "browser.banks"
+        banksButton.addTarget(self, action: #selector(showBanks), for: .touchUpInside)
+
         for child in [globe, urlTextField, reloadButton] {
             child.translatesAutoresizingMaskIntoConstraints = false
             addressBar.addSubview(child)
         }
         NSLayoutConstraint.activate([
-            globe.leadingAnchor.constraint(equalTo: addressBar.leadingAnchor, constant: 14),
+            globe.leadingAnchor.constraint(equalTo: addressBar.leadingAnchor, constant: 10),
             globe.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
-            globe.widthAnchor.constraint(equalToConstant: 20), globe.heightAnchor.constraint(equalToConstant: 20),
-            urlTextField.leadingAnchor.constraint(equalTo: globe.trailingAnchor, constant: 10),
-            urlTextField.topAnchor.constraint(equalTo: addressBar.topAnchor, constant: 12),
-            urlTextField.bottomAnchor.constraint(equalTo: addressBar.bottomAnchor, constant: -12),
+            globe.widthAnchor.constraint(equalToConstant: 16),
+            globe.heightAnchor.constraint(equalToConstant: 16),
+
+            urlTextField.leadingAnchor.constraint(equalTo: globe.trailingAnchor, constant: 8),
+            urlTextField.topAnchor.constraint(equalTo: addressBar.topAnchor, constant: 4),
+            urlTextField.bottomAnchor.constraint(equalTo: addressBar.bottomAnchor, constant: -4),
             urlTextField.trailingAnchor.constraint(equalTo: reloadButton.leadingAnchor, constant: -2),
-            reloadButton.trailingAnchor.constraint(equalTo: addressBar.trailingAnchor, constant: -2),
+
+            reloadButton.trailingAnchor.constraint(equalTo: addressBar.trailingAnchor, constant: -4),
             reloadButton.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
-            reloadButton.widthAnchor.constraint(equalToConstant: 44), reloadButton.heightAnchor.constraint(equalToConstant: 44)
+            reloadButton.widthAnchor.constraint(equalToConstant: 30),
+            reloadButton.heightAnchor.constraint(equalToConstant: 30)
         ])
-        view.addSubview(addressBar)
+
+        [addressBar, banksButton].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            topBarView.addSubview($0)
+        }
+        NSLayoutConstraint.activate([
+            addressBar.leadingAnchor.constraint(equalTo: topBarView.leadingAnchor),
+            addressBar.topAnchor.constraint(equalTo: topBarView.topAnchor),
+            addressBar.bottomAnchor.constraint(equalTo: topBarView.bottomAnchor),
+            addressBar.trailingAnchor.constraint(equalTo: banksButton.leadingAnchor, constant: -8),
+
+            banksButton.trailingAnchor.constraint(equalTo: topBarView.trailingAnchor),
+            banksButton.centerYAnchor.constraint(equalTo: topBarView.centerYAnchor),
+            banksButton.heightAnchor.constraint(equalToConstant: 34)
+        ])
+
+        view.addSubview(topBarView)
         progressView.isHidden = true
         view.addSubview(progressView)
     }
@@ -348,24 +400,32 @@ final class BrowserViewController: UIViewController {
     }
 
     private func setupLayout() {
-        [addressBar, progressView, webView!, toolbar, errorView].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
+        [topBarView, progressView, webView!, toolbar, errorView].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
+
+        webViewBottomToToolbarConstraint = webView.bottomAnchor.constraint(equalTo: toolbar.topAnchor)
+        webViewBottomToKeyboardConstraint = webView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
+
         NSLayoutConstraint.activate([
-            addressBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            addressBar.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
-            addressBar.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
-            addressBar.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
-            progressView.topAnchor.constraint(equalTo: addressBar.bottomAnchor, constant: 8),
+            topBarView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
+            topBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            topBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            topBarView.heightAnchor.constraint(equalToConstant: 38),
+
+            progressView.topAnchor.constraint(equalTo: topBarView.bottomAnchor, constant: 4),
             progressView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             progressView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             progressView.heightAnchor.constraint(equalToConstant: 2),
-            webView.topAnchor.constraint(equalTo: progressView.bottomAnchor, constant: 4),
+
+            webView.topAnchor.constraint(equalTo: progressView.bottomAnchor),
             webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            webView.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
-            toolbar.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
-            toolbar.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
-            toolbar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-            toolbar.heightAnchor.constraint(equalToConstant: 50),
+            webViewBottomToToolbarConstraint,
+
+            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            toolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -44),
+            toolbar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
             errorView.topAnchor.constraint(equalTo: webView.topAnchor),
             errorView.bottomAnchor.constraint(equalTo: webView.bottomAnchor),
             errorView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
@@ -393,7 +453,8 @@ final class BrowserViewController: UIViewController {
         shareButton.isEnabled = webView.url != nil && errorView.isHidden
         progressView.progress = Float(webView.estimatedProgress)
         progressView.isHidden = !webView.isLoading || !errorView.isHidden
-        reloadButton.setImage(UIImage(systemName: webView.isLoading ? "xmark" : "arrow.clockwise"), for: .normal)
+        let reloadConfig = UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        reloadButton.setImage(UIImage(systemName: webView.isLoading ? "xmark" : "arrow.clockwise", withConfiguration: reloadConfig), for: .normal)
         reloadButton.accessibilityLabel = webView.isLoading ? "Остановить загрузку" : "Обновить страницу"
         if !webView.isLoading { refreshControl.endRefreshing() }
         if !urlTextField.isFirstResponder {
@@ -553,6 +614,39 @@ final class BrowserViewController: UIViewController {
         if !vpnOverlay.isHidden && !VPNMonitor.shared.isVPNActive {
             dismissVPNOverlay()
         }
+    }
+
+    @objc private func keyboardWillShow(notification: Notification) {
+        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        let curveInt = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
+        let options = UIView.AnimationOptions(rawValue: curveInt << 16)
+
+        webViewBottomToToolbarConstraint.isActive = false
+        webViewBottomToKeyboardConstraint.isActive = true
+
+        UIView.animate(withDuration: duration, delay: 0, options: options, animations: {
+            self.toolbar.alpha = 0
+            self.view.layoutIfNeeded()
+        }) { _ in
+            if self.toolbar.alpha == 0 {
+                self.toolbar.isHidden = true
+            }
+        }
+    }
+
+    @objc private func keyboardWillHide(notification: Notification) {
+        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        let curveInt = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
+        let options = UIView.AnimationOptions(rawValue: curveInt << 16)
+
+        self.toolbar.isHidden = false
+        webViewBottomToKeyboardConstraint.isActive = false
+        webViewBottomToToolbarConstraint.isActive = true
+
+        UIView.animate(withDuration: duration, delay: 0, options: options, animations: {
+            self.toolbar.alpha = 1
+            self.view.layoutIfNeeded()
+        })
     }
 }
 
