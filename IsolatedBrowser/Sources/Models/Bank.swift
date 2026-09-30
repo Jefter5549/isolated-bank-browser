@@ -42,4 +42,15 @@ final class BrowserPreferences {
             defaults.set(newValue.id, forKey: defaultBankKey)
         }
     }
+
+    private let warnOnVPNKey = "browser.warnOnVPN"
+
+    var warnOnVPN: Bool {
+        get {
+            defaults.object(forKey: warnOnVPNKey) == nil ? true : defaults.bool(forKey: warnOnVPNKey)
+        }
+        set {
+            defaults.set(newValue, forKey: warnOnVPNKey)
+        }
+    }
 }

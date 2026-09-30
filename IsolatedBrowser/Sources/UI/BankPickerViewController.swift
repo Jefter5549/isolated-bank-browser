@@ -28,22 +28,59 @@ final class BankPickerViewController: UITableViewController {
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Bank")
     }
 
-    override func numberOfSections(in tableView: UITableView) -> Int { 2 }
+    override func numberOfSections(in tableView: UITableView) -> Int { 3 }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        section == 0 ? 1 : Bank.all.count
+        switch section {
+        case 0: return 1
+        case 1: return Bank.all.count
+        case 2: return 1
+        default: return 0
+        }
     }
 
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        section == 0 ? "При запуске" : "Открыть банк"
+        switch section {
+        case 0: return "При запуске"
+        case 1: return "Открыть банк"
+        case 2: return "Сеть и безопасность"
+        default: return nil
+        }
     }
 
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        section == 0 ? "Этот банк открывается при новом запуске приложения. Возврат из другого приложения не прерывает текущую страницу." : "Нажмите на банк, чтобы открыть его. Нажмите на звезду, чтобы открывать этот банк по умолчанию."
+        switch section {
+        case 0: return "Этот банк открывается при новом запуске приложения. Возврат из другого приложения не прерывает текущую страницу."
+        case 1: return "Нажмите на банк, чтобы открыть его. Нажмите на звезду, чтобы открывать этот банк по умолчанию."
+        case 2: return "При активном VPN приложение покажет предупреждение и предложит перейти в настройки iOS."
+        default: return nil
+        }
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "Bank", for: indexPath)
+        if indexPath.section == 2 {
+            var content = cell.defaultContentConfiguration()
+            content.text = "Предупреждать о VPN"
+            content.secondaryText = "Помогает не забыть отключить VPN перед входом в банк"
+            content.textProperties.font = .preferredFont(forTextStyle: .body)
+            content.secondaryTextProperties.color = .secondaryLabel
+            content.secondaryTextProperties.numberOfLines = 0
+            content.image = UIImage(systemName: "network.badge.shield.half.filled")
+            content.imageProperties.tintColor = .systemOrange
+            cell.contentConfiguration = content
+            cell.accessibilityIdentifier = "settings.warnOnVPN"
+            cell.selectionStyle = .none
+            let toggle = UISwitch()
+            toggle.isOn = preferences.warnOnVPN
+            toggle.addAction(UIAction { [weak self] _ in
+                self?.preferences.warnOnVPN = toggle.isOn
+            }, for: .valueChanged)
+            cell.accessoryView = toggle
+            return cell
+        }
+
+        cell.selectionStyle = .default
         let bank = indexPath.section == 0 ? preferences.defaultBank : Bank.all[indexPath.row]
         let isDefault = preferences.defaultBank == bank
         var content = cell.defaultContentConfiguration()
@@ -76,6 +113,7 @@ final class BankPickerViewController: UITableViewController {
     }
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        guard indexPath.section != 2 else { return }
         let bank = indexPath.section == 0 ? preferences.defaultBank : Bank.all[indexPath.row]
         tableView.deselectRow(at: indexPath, animated: true)
         dismiss(animated: true) { [onOpen] in onOpen(bank) }
