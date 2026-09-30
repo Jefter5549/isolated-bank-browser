@@ -17,7 +17,7 @@ final class BankPickerViewController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Банки"
+        title = "Сервисы"
         view.tintColor = .systemBlue
         navigationController?.view.tintColor = .systemBlue
         navigationController?.navigationBar.prefersLargeTitles = true
@@ -42,7 +42,7 @@ final class BankPickerViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         switch section {
         case 0: return "При запуске"
-        case 1: return "Открыть банк"
+        case 1: return "Быстрый доступ"
         case 2: return "Сеть и безопасность"
         default: return nil
         }
@@ -50,8 +50,8 @@ final class BankPickerViewController: UITableViewController {
 
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         switch section {
-        case 0: return "Этот банк открывается при новом запуске приложения. Возврат из другого приложения не прерывает текущую страницу."
-        case 1: return "Нажмите на банк, чтобы открыть его. Нажмите на звезду, чтобы открывать этот банк по умолчанию."
+        case 0: return "Этот сервис открывается при запуске приложения. Возврат из другого приложения не прерывает текущую страницу."
+        case 1: return "Нажмите на сервис, чтобы открыть его. Нажмите на звезду, чтобы открывать этот сервис по умолчанию."
         case 2: return "При запуске проверяет статус VPN и приостанавливает сетевые запросы до закрытия уведомления."
         default: return nil
         }
@@ -85,11 +85,19 @@ final class BankPickerViewController: UITableViewController {
         let isDefault = preferences.defaultBank == bank
         var content = cell.defaultContentConfiguration()
         content.text = bank.name
-        content.secondaryText = indexPath.section == 0 ? "Банк по умолчанию" : bank.service
+        content.secondaryText = indexPath.section == 0 ? "Стартовый сервис" : bank.service
         content.textProperties.font = .preferredFont(forTextStyle: .headline)
         content.secondaryTextProperties.color = .secondaryLabel
         content.secondaryTextProperties.numberOfLines = 0
-        content.image = UIImage(systemName: indexPath.section == 0 ? "house.fill" : "building.columns")
+        let iconName: String
+        if indexPath.section == 0 {
+            iconName = "house.fill"
+        } else if bank.id == "gosuslugi" {
+            iconName = "person.badge.shield.checkmark.fill"
+        } else {
+            iconName = "building.columns"
+        }
+        content.image = UIImage(systemName: iconName)
         content.imageProperties.tintColor = bank.tintColor
         cell.contentConfiguration = content
         cell.accessibilityIdentifier = "bank.\(indexPath.section).\(bank.id)"
@@ -102,9 +110,9 @@ final class BankPickerViewController: UITableViewController {
             star.frame = CGRect(x: 0, y: 0, width: 44, height: 44)
             star.setImage(UIImage(systemName: isDefault ? "star.fill" : "star"), for: .normal)
             star.tintColor = isDefault ? .systemOrange : .tertiaryLabel
-            star.accessibilityLabel = "\(bank.name): банк по умолчанию"
+            star.accessibilityLabel = "\(bank.name): стартовый сервис"
             star.accessibilityValue = isDefault ? "Выбран" : "Не выбран"
-            star.accessibilityHint = "Выбрать этот банк для открытия при запуске"
+            star.accessibilityHint = "Выбрать этот сервис для открытия при запуске"
             star.accessibilityIdentifier = "defaultBank.\(bank.id)"
             star.addAction(UIAction { [weak self] _ in self?.setDefault(bank) }, for: .touchUpInside)
             cell.accessoryView = star
@@ -124,7 +132,7 @@ final class BankPickerViewController: UITableViewController {
         onDefaultChanged()
         tableView.reloadData()
         UISelectionFeedbackGenerator().selectionChanged()
-        UIAccessibility.post(notification: .announcement, argument: "\(bank.name) выбран по умолчанию")
+        UIAccessibility.post(notification: .announcement, argument: "\(bank.name) выбран стартовым сервисом")
     }
 
     @objc private func close() { dismiss(animated: true) }
