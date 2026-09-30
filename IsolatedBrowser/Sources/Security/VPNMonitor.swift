@@ -55,7 +55,7 @@ final class VPNMonitor {
     static func checkActiveVPN(path: NWPath? = nil) -> Bool {
         guard let path = path else { return false }
         guard path.status == .satisfied else { return false }
-        return path.usesInterfaceType(.other) || path.interfaces.contains(where: { $0.type == .other })
+        return path.usesInterfaceType(.other) || path.availableInterfaces.contains(where: { $0.type == .other })
     }
 
     /// Проверяет, относится ли тип интерфейса к туннельным (VPN)
