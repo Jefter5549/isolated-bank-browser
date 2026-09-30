@@ -283,7 +283,7 @@ final class BrowserViewController: UIViewController {
         titleLabel.adjustsFontForContentSizeCategory = true
 
         let descLabel = UILabel()
-        descLabel.text = "Обнаружено активное VPN-соединение. Для корректной работы и защиты от детектирования рекомендуется отключить VPN."
+        descLabel.text = "Обнаружено активное VPN-соединение. Для корректной работы с банками и защиты от детектирования отключите VPN в Настройках iOS или через Пункт управления."
         descLabel.font = .preferredFont(forTextStyle: .subheadline)
         descLabel.textColor = .secondaryLabel
         descLabel.textAlignment = .center
@@ -291,12 +291,12 @@ final class BrowserViewController: UIViewController {
         descLabel.numberOfLines = 0
 
         var settingsConfig = UIButton.Configuration.filled()
-        settingsConfig.title = "Настройки"
+        settingsConfig.title = "Настройки iOS"
         settingsConfig.cornerStyle = .capsule
         settingsConfig.buttonSize = .medium
         vpnSettingsButton.configuration = settingsConfig
         vpnSettingsButton.tintColor = .systemBlue
-        vpnSettingsButton.accessibilityLabel = "Открыть системные настройки"
+        vpnSettingsButton.accessibilityLabel = "Открыть системные настройки iOS"
         vpnSettingsButton.accessibilityIdentifier = "browser.vpnSettings"
         vpnSettingsButton.addTarget(self, action: #selector(openVPNSettings), for: .touchUpInside)
 

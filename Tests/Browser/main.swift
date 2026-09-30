@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 var failures = 0
 var count = 0
@@ -54,20 +55,11 @@ check("VPN warning preference restored", restoredPrefs.warnOnVPN == false)
 preferences.warnOnVPN = true
 check("VPN warning re-enabled", preferences.warnOnVPN == true)
 
-check("utun interface excluded from scoped VPN to prevent false positives", !VPNMonitor.isScopedVPNInterfaceName("utun0"))
-check("ppp interface recognized in scoped VPN", VPNMonitor.isScopedVPNInterfaceName("ppp0"))
-check("ipsec interface recognized in scoped VPN", VPNMonitor.isScopedVPNInterfaceName("ipsec1"))
-check("tun interface recognized in scoped VPN", VPNMonitor.isScopedVPNInterfaceName("tun3"))
-check("tap interface recognized in scoped VPN", VPNMonitor.isScopedVPNInterfaceName("tap0"))
-check("en0 physical interface not scoped VPN", !VPNMonitor.isScopedVPNInterfaceName("en0"))
-check("cellular pdp_ip interface not scoped VPN", !VPNMonitor.isScopedVPNInterfaceName("pdp_ip0"))
-check("loopback lo0 interface not scoped VPN", !VPNMonitor.isScopedVPNInterfaceName("lo0"))
-
-check("ppp recognized in explicit VPN", VPNMonitor.isExplicitVPNInterfaceName("ppp0"))
-check("ipsec recognized in explicit VPN", VPNMonitor.isExplicitVPNInterfaceName("ipsec0"))
-check("tun recognized in explicit VPN", VPNMonitor.isExplicitVPNInterfaceName("tun0"))
-check("tap recognized in explicit VPN", VPNMonitor.isExplicitVPNInterfaceName("tap0"))
-check("utun0 not treated as explicit raw interface", !VPNMonitor.isExplicitVPNInterfaceName("utun0"))
+check("other interface type recognized as VPN tunnel", VPNMonitor.isVPNInterfaceType(.other))
+check("wifi interface type recognized as non-VPN", !VPNMonitor.isVPNInterfaceType(.wifi))
+check("cellular interface type recognized as non-VPN", !VPNMonitor.isVPNInterfaceType(.cellular))
+check("loopback interface type recognized as non-VPN", !VPNMonitor.isVPNInterfaceType(.loopback))
+check("checkActiveVPN with nil path returns false", !VPNMonitor.checkActiveVPN(path: nil))
 
 print("\(count - failures)/\(count) browser checks passed")
 if failures > 0 { exit(1) }
