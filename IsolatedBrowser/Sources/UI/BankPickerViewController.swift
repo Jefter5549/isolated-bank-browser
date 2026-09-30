@@ -52,7 +52,7 @@ final class BankPickerViewController: UITableViewController {
         switch section {
         case 0: return "Этот банк открывается при новом запуске приложения. Возврат из другого приложения не прерывает текущую страницу."
         case 1: return "Нажмите на банк, чтобы открыть его. Нажмите на звезду, чтобы открывать этот банк по умолчанию."
-        case 2: return "При активном VPN приложение покажет предупреждение и предложит перейти в настройки iOS."
+        case 2: return "При запуске проверяет статус VPN и приостанавливает сетевые запросы до закрытия уведомления."
         default: return nil
         }
     }
@@ -61,8 +61,8 @@ final class BankPickerViewController: UITableViewController {
         let cell = tableView.dequeueReusableCell(withIdentifier: "Bank", for: indexPath)
         if indexPath.section == 2 {
             var content = cell.defaultContentConfiguration()
-            content.text = "Предупреждать о VPN"
-            content.secondaryText = "Помогает не забыть отключить VPN перед входом в банк"
+            content.text = "Предупреждать о VPN при запуске"
+            content.secondaryText = "Приостанавливает загрузку страницы при активном VPN"
             content.textProperties.font = .preferredFont(forTextStyle: .body)
             content.secondaryTextProperties.color = .secondaryLabel
             content.secondaryTextProperties.numberOfLines = 0

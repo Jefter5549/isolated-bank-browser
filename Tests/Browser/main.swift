@@ -54,14 +54,20 @@ check("VPN warning preference restored", restoredPrefs.warnOnVPN == false)
 preferences.warnOnVPN = true
 check("VPN warning re-enabled", preferences.warnOnVPN == true)
 
-check("utun interface recognized as VPN", VPNMonitor.isVPNInterfaceName("utun0"))
-check("ppp interface recognized as VPN", VPNMonitor.isVPNInterfaceName("ppp0"))
-check("ipsec interface recognized as VPN", VPNMonitor.isVPNInterfaceName("ipsec1"))
-check("tun interface recognized as VPN", VPNMonitor.isVPNInterfaceName("tun3"))
-check("tap interface recognized as VPN", VPNMonitor.isVPNInterfaceName("tap0"))
-check("en0 physical interface not VPN", !VPNMonitor.isVPNInterfaceName("en0"))
-check("cellular pdp_ip interface not VPN", !VPNMonitor.isVPNInterfaceName("pdp_ip0"))
-check("loopback lo0 interface not VPN", !VPNMonitor.isVPNInterfaceName("lo0"))
+check("utun interface recognized in scoped VPN", VPNMonitor.isScopedVPNInterfaceName("utun0"))
+check("ppp interface recognized in scoped VPN", VPNMonitor.isScopedVPNInterfaceName("ppp0"))
+check("ipsec interface recognized in scoped VPN", VPNMonitor.isScopedVPNInterfaceName("ipsec1"))
+check("tun interface recognized in scoped VPN", VPNMonitor.isScopedVPNInterfaceName("tun3"))
+check("tap interface recognized in scoped VPN", VPNMonitor.isScopedVPNInterfaceName("tap0"))
+check("en0 physical interface not scoped VPN", !VPNMonitor.isScopedVPNInterfaceName("en0"))
+check("cellular pdp_ip interface not scoped VPN", !VPNMonitor.isScopedVPNInterfaceName("pdp_ip0"))
+check("loopback lo0 interface not scoped VPN", !VPNMonitor.isScopedVPNInterfaceName("lo0"))
+
+check("ppp recognized in explicit VPN", VPNMonitor.isExplicitVPNInterfaceName("ppp0"))
+check("ipsec recognized in explicit VPN", VPNMonitor.isExplicitVPNInterfaceName("ipsec0"))
+check("tun recognized in explicit VPN", VPNMonitor.isExplicitVPNInterfaceName("tun0"))
+check("tap recognized in explicit VPN", VPNMonitor.isExplicitVPNInterfaceName("tap0"))
+check("utun0 not treated as explicit raw interface", !VPNMonitor.isExplicitVPNInterfaceName("utun0"))
 
 print("\(count - failures)/\(count) browser checks passed")
 if failures > 0 { exit(1) }
