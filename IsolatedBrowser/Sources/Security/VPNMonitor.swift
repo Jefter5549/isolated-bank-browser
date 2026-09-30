@@ -45,7 +45,7 @@ final class VPNMonitor {
         guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return false }
         defer { freeifaddrs(ifaddr) }
 
-        for ptr in sequence(first: first, by: { $0.pointee.ifa_next }) {
+        for ptr in sequence(first: first, next: { $0.pointee.ifa_next }) {
             let flags = Int32(ptr.pointee.ifa_flags)
             let isUp = (flags & IFF_UP) == IFF_UP
             let isRunning = (flags & IFF_RUNNING) == IFF_RUNNING
