@@ -13,6 +13,11 @@ final class BrowserViewController: UIViewController {
     private let errorView = UIScrollView()
     private let errorContent = UIStackView()
     private let errorMessage = UILabel()
+    private let vpnBannerContainer = UIStackView()
+    private let vpnBanner = UIView()
+    private let vpnSettingsButton = UIButton(type: .system)
+    private let vpnDismissButton = UIButton(type: .system)
+    private var isVPNDismissedForCurrentSite = false
     private var backButton: UIBarButtonItem!
     private var forwardButton: UIBarButtonItem!
     private var homeButton: UIBarButtonItem!
@@ -56,6 +61,8 @@ final class BrowserViewController: UIViewController {
     func closeTab() {
         isClosed = true
         observations.removeAll()
+        NotificationCenter.default.removeObserver(self, name: .vpnStatusDidChange, object: nil)
+        NotificationCenter.default.removeObserver(self, name: UIApplication.willEnterForegroundNotification, object: nil)
         webView?.stopLoading()
         webView?.navigationDelegate = nil
         webView?.uiDelegate = nil
@@ -77,8 +84,13 @@ final class BrowserViewController: UIViewController {
         setupWebView()
         setupToolbar()
         setupErrorView()
+        setupVPNBanner()
         setupLayout()
         observeWebView()
+        NotificationCenter.default.addObserver(self, selector: #selector(handleVPNChange),
+                                               name: .vpnStatusDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleVPNChange),
+                                               name: UIApplication.willEnterForegroundNotification, object: nil)
         if let url = initialURL { loadURL(url) }
     }
 
@@ -241,8 +253,71 @@ final class BrowserViewController: UIViewController {
         view.addSubview(errorView)
     }
 
+    private func setupVPNBanner() {
+        vpnBanner.backgroundColor = .systemYellow.withAlphaComponent(0.18)
+        vpnBanner.layer.cornerRadius = 10
+        vpnBanner.layer.cornerCurve = .continuous
+        vpnBanner.clipsToBounds = true
+        vpnBanner.isHidden = true
+
+        let icon = UIImageView(image: UIImage(systemName: "network.badge.shield.half.filled") ?? UIImage(systemName: "exclamationmark.triangle.fill"))
+        icon.tintColor = .systemOrange
+        icon.contentMode = .scaleAspectFit
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+
+        let label = UILabel()
+        label.text = "Включён VPN. Банк может отклонить вход."
+        label.font = .preferredFont(forTextStyle: .subheadline)
+        label.textColor = .label
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 2
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        var config = UIButton.Configuration.tinted()
+        config.title = "Настройки"
+        config.buttonSize = .mini
+        config.cornerStyle = .capsule
+        vpnSettingsButton.configuration = config
+        vpnSettingsButton.tintColor = .systemOrange
+        vpnSettingsButton.accessibilityLabel = "Открыть настройки VPN"
+        vpnSettingsButton.accessibilityIdentifier = "browser.vpnSettings"
+        vpnSettingsButton.setContentHuggingPriority(.required, for: .horizontal)
+        vpnSettingsButton.addTarget(self, action: #selector(openVPNSettings), for: .touchUpInside)
+
+        vpnDismissButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        vpnDismissButton.tintColor = .secondaryLabel
+        vpnDismissButton.accessibilityLabel = "Скрыть предупреждение о VPN"
+        vpnDismissButton.accessibilityIdentifier = "browser.vpnDismiss"
+        vpnDismissButton.setContentHuggingPriority(.required, for: .horizontal)
+        vpnDismissButton.addTarget(self, action: #selector(dismissVPNBanner), for: .touchUpInside)
+
+        let content = UIStackView(arrangedSubviews: [icon, label, vpnSettingsButton, vpnDismissButton])
+        content.axis = .horizontal
+        content.alignment = .center
+        content.spacing = 8
+        content.translatesAutoresizingMaskIntoConstraints = false
+        vpnBanner.addSubview(content)
+
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: vpnBanner.leadingAnchor, constant: 10),
+            content.trailingAnchor.constraint(equalTo: vpnBanner.trailingAnchor, constant: -8),
+            content.topAnchor.constraint(equalTo: vpnBanner.topAnchor, constant: 6),
+            content.bottomAnchor.constraint(equalTo: vpnBanner.bottomAnchor, constant: -6),
+            icon.widthAnchor.constraint(equalToConstant: 22),
+            icon.heightAnchor.constraint(equalToConstant: 22),
+            vpnDismissButton.widthAnchor.constraint(equalToConstant: 28),
+            vpnDismissButton.heightAnchor.constraint(equalToConstant: 28)
+        ])
+
+        vpnBannerContainer.axis = .vertical
+        vpnBannerContainer.alignment = .fill
+        vpnBannerContainer.distribution = .fill
+        vpnBannerContainer.addArrangedSubview(vpnBanner)
+        view.addSubview(vpnBannerContainer)
+    }
+
     private func setupLayout() {
-        [addressBar, progressView, webView!, toolbar, errorView].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
+        [addressBar, progressView, vpnBannerContainer, webView!, toolbar, errorView].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
         NSLayoutConstraint.activate([
             addressBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
             addressBar.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
@@ -252,7 +327,10 @@ final class BrowserViewController: UIViewController {
             progressView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             progressView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             progressView.heightAnchor.constraint(equalToConstant: 2),
-            webView.topAnchor.constraint(equalTo: progressView.bottomAnchor),
+            vpnBannerContainer.topAnchor.constraint(equalTo: progressView.bottomAnchor, constant: 4),
+            vpnBannerContainer.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            vpnBannerContainer.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            webView.topAnchor.constraint(equalTo: vpnBannerContainer.bottomAnchor, constant: 4),
             webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
@@ -295,6 +373,7 @@ final class BrowserViewController: UIViewController {
             urlTextField.text = url?.host ?? url?.absoluteString
             title = Bank.matching(url)?.name ?? "Браузер"
         }
+        updateVPNWarning()
     }
 
     private func updateDefaultBankLabel() {
@@ -315,10 +394,14 @@ final class BrowserViewController: UIViewController {
 
     private func loadURL(_ url: URL) {
         guard HTTPSNavigationPolicy.allows(url) else { showHTTPWarning(); return }
+        if requestedURL?.host != url.host {
+            isVPNDismissedForCurrentSite = false
+        }
         requestedURL = url
         errorView.isHidden = true
         webView.isHidden = false
         urlTextField.text = url.host ?? url.absoluteString
+        updateVPNWarning()
         guard contentReady else {
             title = Bank.matching(url)?.name ?? "Браузер"
             prepareSecureContent()
@@ -394,6 +477,40 @@ final class BrowserViewController: UIViewController {
         }
         updateControls()
         onAddressChanged?()
+    }
+
+    private func updateVPNWarning() {
+        guard preferences.warnOnVPN else {
+            setVPNBannerVisible(false)
+            return
+        }
+        let url = webView?.url ?? requestedURL ?? initialURL
+        let isBank = Bank.matching(url) != nil
+        let isVPN = VPNMonitor.shared.isVPNActive
+
+        let shouldShow = isBank && isVPN && !isVPNDismissedForCurrentSite
+        setVPNBannerVisible(shouldShow)
+    }
+
+    private func setVPNBannerVisible(_ visible: Bool) {
+        guard vpnBanner.isHidden == visible else { return }
+        UIView.animate(withDuration: 0.25) {
+            self.vpnBanner.isHidden = !visible
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    @objc private func openVPNSettings() {
+        VPNMonitor.openVPNSettings()
+    }
+
+    @objc private func dismissVPNBanner() {
+        isVPNDismissedForCurrentSite = true
+        setVPNBannerVisible(false)
+    }
+
+    @objc private func handleVPNChange() {
+        updateVPNWarning()
     }
 }
 

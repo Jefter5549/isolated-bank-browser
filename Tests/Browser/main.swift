@@ -45,5 +45,23 @@ let query = "банк & переводы + проценты?"
 let search = BrowserAddress.resolve(query)!
 let items = URLComponents(url: search, resolvingAgainstBaseURL: false)!.queryItems!
 check("search query remains one exact parameter", items.count == 1 && items[0].name == "q" && items[0].value == query)
+
+check("VPN warning enabled by default", preferences.warnOnVPN == true)
+preferences.warnOnVPN = false
+check("VPN warning disabled when set", preferences.warnOnVPN == false)
+let restoredPrefs = BrowserPreferences(defaults: defaults)
+check("VPN warning preference restored", restoredPrefs.warnOnVPN == false)
+preferences.warnOnVPN = true
+check("VPN warning re-enabled", preferences.warnOnVPN == true)
+
+check("utun interface recognized as VPN", VPNMonitor.isVPNInterfaceName("utun0"))
+check("ppp interface recognized as VPN", VPNMonitor.isVPNInterfaceName("ppp0"))
+check("ipsec interface recognized as VPN", VPNMonitor.isVPNInterfaceName("ipsec1"))
+check("tun interface recognized as VPN", VPNMonitor.isVPNInterfaceName("tun3"))
+check("tap interface recognized as VPN", VPNMonitor.isVPNInterfaceName("tap0"))
+check("en0 physical interface not VPN", !VPNMonitor.isVPNInterfaceName("en0"))
+check("cellular pdp_ip interface not VPN", !VPNMonitor.isVPNInterfaceName("pdp_ip0"))
+check("loopback lo0 interface not VPN", !VPNMonitor.isVPNInterfaceName("lo0"))
+
 print("\(count - failures)/\(count) browser checks passed")
 if failures > 0 { exit(1) }
