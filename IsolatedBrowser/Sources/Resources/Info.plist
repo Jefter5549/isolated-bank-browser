@@ -28,6 +28,12 @@
     <true/>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <true/>
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <string>App-Prefs</string>
+        <string>App-prefs</string>
+        <string>prefs</string>
+    </array>
     <!-- Bank-scoped custom CA evaluation; SecureWebContent blocks HTTP/WS before any load. -->
     <key>NSAppTransportSecurity</key>
     <dict>

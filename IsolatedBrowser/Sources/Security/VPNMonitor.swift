@@ -4,12 +4,14 @@ import Network
 import UIKit
 #endif
 
-/// Мониторинг активного VPN-туннеля через системные интерфейсы и NWPathMonitor.
+/// Мониторинг активного VPN-туннеля через NWPathMonitor.
 final class VPNMonitor {
     static let shared = VPNMonitor()
 
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "space.jefter.isolatedbrowser.vpnmonitor")
+    private let initialPathGroup = DispatchGroup()
+    private var hasReceivedInitialPath = false
 
     private(set) var isVPNActive: Bool = false {
         didSet {
@@ -22,11 +24,20 @@ final class VPNMonitor {
     }
 
     init() {
+        initialPathGroup.enter()
         monitor.pathUpdateHandler = { [weak self] path in
-            self?.evaluate(path: path)
+            guard let self = self else { return }
+            self.evaluate(path: path)
+            if !self.hasReceivedInitialPath {
+                self.hasReceivedInitialPath = true
+                self.initialPathGroup.leave()
+            }
         }
         monitor.start(queue: queue)
-        isVPNActive = Self.checkActiveVPN()
+        // Синхронно ожидаем первую оценку пути (обычно занимает единицы миллисекунд),
+        // чтобы исключить ложные срабатывания при старте приложения до готовности NWPath.
+        _ = initialPathGroup.wait(timeout: .now() + 0.15)
+        evaluate(path: monitor.currentPath)
     }
 
     deinit {
@@ -34,114 +45,47 @@ final class VPNMonitor {
     }
 
     private func evaluate(path: NWPath) {
-        // Проверяем, идет ли активный трафик через VPN
         let isVPN = Self.checkActiveVPN(path: path)
         isVPNActive = isVPN
     }
 
-    /// Проверяет физическое наличие активного VPN соединения.
-    /// Предотвращает ложные срабатывания (utun системных служб Apple, AirDrop, Private Relay, AWDL).
+    /// Проверяет, маршрутизируется ли сетевой трафик через активный VPN-интерфейс (.other).
+    /// Исключает ложные срабатывания (VoWiFi / Wi-Fi Calling ipsec0, системные utun службы Apple,
+    /// Private Relay, AirDrop, сохранённые отключенные профили в настройках).
     static func checkActiveVPN(path: NWPath? = nil) -> Bool {
-        // 1. Проверяем NWPath: если система сообщает, что трафик идет через интерфейс типа .other (VPN-туннель)
-        if let path = path, path.status == .satisfied, path.usesInterfaceType(.other) {
-            return true
-        }
-
-        #if canImport(CFNetwork)
-        // 2. Системные scoped настройки прокси:
-        // Проверяем наличие интерфейсов tap, tun, ppp, ipsec.
-        // utun намеренно НЕ включаем сюда, так как в iOS utun0..utun3 почти всегда создаются
-        // системными демонами (mDNSResponder, CloudKit, Private Relay) даже при выключенном VPN.
-        if let proxySettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any],
-           let scoped = proxySettings["__SCOPED__"] as? [String: Any] {
-            for key in scoped.keys {
-                let lower = key.lowercased()
-                if isScopedVPNInterfaceName(lower) {
-                    return true
-                }
-            }
-        }
-        #endif
-
-        // 3. Проверка getifaddrs на явные туннельные интерфейсы (ppp, ipsec, tun, tap).
-        // Никаких utun здесь не проверяем, чтобы исключить ложные срабатывания на iOS.
-        var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return false }
-        defer { freeifaddrs(ifaddr) }
-
-        for ptr in sequence(first: first, next: { $0.pointee.ifa_next }) {
-            let flags = Int32(ptr.pointee.ifa_flags)
-            let isUp = (flags & IFF_UP) == IFF_UP
-            let isRunning = (flags & IFF_RUNNING) == IFF_RUNNING
-            let isLoopback = (flags & IFF_LOOPBACK) == IFF_LOOPBACK
-            guard isUp && isRunning && !isLoopback else { continue }
-
-            guard let addr = ptr.pointee.ifa_addr else { continue }
-            let family = addr.pointee.sa_family
-            guard family == UInt8(AF_INET) || family == UInt8(AF_INET6) else { continue }
-
-            let name = String(cString: ptr.pointee.ifa_name).lowercased()
-            if isExplicitVPNInterfaceName(name) {
-                return true
-            }
-        }
-        return false
+        guard let path = path else { return false }
+        guard path.status == .satisfied else { return false }
+        return path.usesInterfaceType(.other) || path.interfaces.contains(where: { $0.type == .other })
     }
 
-    /// Интерфейсы в __SCOPED__ настройках CFNetwork
-    static func isScopedVPNInterfaceName(_ name: String) -> Bool {
-        name.hasPrefix("ppp") ||
-        name.hasPrefix("ipsec") ||
-        name.hasPrefix("tun") ||
-        name.hasPrefix("tap")
-    }
-
-    /// Явные туннельные интерфейсы getifaddrs
-    static func isExplicitVPNInterfaceName(_ name: String) -> Bool {
-        name.hasPrefix("ppp") ||
-        name.hasPrefix("ipsec") ||
-        name.hasPrefix("tun") ||
-        name.hasPrefix("tap")
+    /// Проверяет, относится ли тип интерфейса к туннельным (VPN)
+    static func isVPNInterfaceType(_ type: NWInterface.InterfaceType) -> Bool {
+        type == .other
     }
 
     /// Открывает системные Настройки iOS
     static func openVPNSettings() {
         #if canImport(UIKit)
         let candidates = [
-            "App-Prefs:root=General&path=VPN",
             "App-prefs:root=General&path=VPN",
+            "App-Prefs:root=General&path=VPN",
             "App-Prefs:root=VPN",
             "App-prefs:root=VPN",
             "prefs:root=General&path=VPN",
             "prefs:root=VPN",
-            "App-Prefs:root=",
             "App-prefs:root=",
-            "App-Prefs:",
-            "App-prefs:",
+            "App-Prefs:root=",
             UIApplication.openSettingsURLString
         ]
         for candidate in candidates {
             guard let url = URL(string: candidate) else { continue }
-            // Не используем canOpenURL, так как приватные URL-схемы Apple (App-Prefs/prefs)
-            // блокируются canOpenURL без LSApplicationQueriesSchemes, но успешно открываются через open().
             if UIApplication.shared.canOpenURL(url) {
-                UIApplication.shared.open(url)
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
                 return
             }
         }
-        // Если canOpenURL вернул false для всех схем, вызываем open() напрямую для главного экрана Настроек:
-        if let rootURL = URL(string: "App-prefs:root=General&path=VPN") {
-            UIApplication.shared.open(rootURL, options: [:]) { success in
-                if !success, let generalSettingsURL = URL(string: "App-prefs:root=") {
-                    UIApplication.shared.open(generalSettingsURL, options: [:]) { rootSuccess in
-                        if !rootSuccess, let appSettings = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(appSettings)
-                        }
-                    }
-                }
-            }
-        } else if let appSettings = URL(string: UIApplication.openSettingsURLString) {
-            UIApplication.shared.open(appSettings)
+        if let fallback = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(fallback, options: [:], completionHandler: nil)
         }
         #endif
     }
