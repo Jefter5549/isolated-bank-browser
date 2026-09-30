@@ -241,7 +241,6 @@ final class BrowserViewController: UIViewController {
         NSLayoutConstraint.activate([
             addressBar.leadingAnchor.constraint(equalTo: topBarView.leadingAnchor, constant: 14),
             addressBar.trailingAnchor.constraint(equalTo: topBarView.trailingAnchor, constant: -14),
-            addressBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 5),
             addressBar.heightAnchor.constraint(equalToConstant: 40),
             addressBar.bottomAnchor.constraint(equalTo: topBarView.bottomAnchor, constant: -7),
 
@@ -484,6 +483,7 @@ final class BrowserViewController: UIViewController {
             topBarView.topAnchor.constraint(equalTo: view.topAnchor),
             topBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             topBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            addressBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 5),
 
             progressView.topAnchor.constraint(equalTo: topBarView.bottomAnchor),
             progressView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
