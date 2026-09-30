@@ -119,7 +119,7 @@
         </dict>
     </dict>
     <key>NSCameraUsageDescription</key>
-    <string>Камера необходима для сканирования QR-кодов и документов в банковских сервисах.</string>
+    <string>Камера необходима для сканирования QR-кодов и документов в поддерживаемых сервисах.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Доступ к галерее необходим для загрузки платежных документов и квитанций.</string>
     <key>NSMicrophoneUsageDescription</key>
