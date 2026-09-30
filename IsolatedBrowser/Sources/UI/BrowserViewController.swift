@@ -1,6 +1,26 @@
 import UIKit
 import WebKit
 
+private enum ChromeTheme {
+    static let barBackground = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor(red: 0.125, green: 0.129, blue: 0.141, alpha: 1.0)
+            : UIColor(red: 0.945, green: 0.949, blue: 0.957, alpha: 1.0)
+    }
+
+    static let capsuleBackground = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor(red: 0.176, green: 0.180, blue: 0.192, alpha: 1.0)
+            : UIColor.white
+    }
+
+    static let separator = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor(red: 0.235, green: 0.251, blue: 0.263, alpha: 1.0)
+            : UIColor(red: 0.855, green: 0.863, blue: 0.878, alpha: 1.0)
+    }
+}
+
 final class BrowserViewController: UIViewController {
     private let preferences = BrowserPreferences()
     private(set) var webView: WKWebView!
@@ -86,7 +106,7 @@ final class BrowserViewController: UIViewController {
             let rect = CGRect(origin: .zero, size: size).insetBy(dx: 1.5, dy: 1.5)
             let path = UIBezierPath(roundedRect: rect, cornerRadius: 4.5)
             path.lineWidth = 1.8
-            UIColor.systemBlue.setStroke()
+            UIColor.label.setStroke()
             path.stroke()
 
             let text = "\(min(count, 99))"
@@ -94,7 +114,7 @@ final class BrowserViewController: UIViewController {
             let font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: font,
-                .foregroundColor: UIColor.systemBlue
+                .foregroundColor: UIColor.label
             ]
             let textSize = text.size(withAttributes: attributes)
             let textRect = CGRect(
@@ -121,8 +141,8 @@ final class BrowserViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
-        view.tintColor = .systemBlue
+        view.backgroundColor = ChromeTheme.barBackground
+        view.tintColor = .label
         setupNavigationBar()
         setupAddressBar()
         setupWebView()
@@ -154,21 +174,27 @@ final class BrowserViewController: UIViewController {
     }
 
     private func setupAddressBar() {
-        topBarView.backgroundColor = .systemBackground
+        topBarView.backgroundColor = ChromeTheme.barBackground
 
-        addressBar.backgroundColor = .secondarySystemBackground
-        addressBar.layer.cornerRadius = 14
+        let topBarBottomBorder = UIView()
+        topBarBottomBorder.backgroundColor = ChromeTheme.separator
+        topBarBottomBorder.translatesAutoresizingMaskIntoConstraints = false
+        topBarView.addSubview(topBarBottomBorder)
+
+        addressBar.backgroundColor = ChromeTheme.capsuleBackground
+        addressBar.layer.cornerRadius = 20
         addressBar.layer.cornerCurve = .continuous
 
         let servicesConfig = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
         servicesButton.setImage(UIImage(systemName: "square.grid.2x2.fill", withConfiguration: servicesConfig), for: .normal)
-        servicesButton.tintColor = .systemBlue
+        servicesButton.tintColor = .label
         servicesButton.accessibilityLabel = "Сервисы и стартовая страница"
         servicesButton.accessibilityIdentifier = "browser.banks"
         servicesButton.addTarget(self, action: #selector(showBanks), for: .touchUpInside)
 
         urlTextField.placeholder = "Сайт или поисковый запрос"
-        urlTextField.font = .systemFont(ofSize: 14, weight: .regular)
+        urlTextField.font = .systemFont(ofSize: 15, weight: .regular)
+        urlTextField.textColor = .label
         urlTextField.textAlignment = .center
         urlTextField.adjustsFontForContentSizeCategory = true
         urlTextField.keyboardType = .webSearch
@@ -213,10 +239,16 @@ final class BrowserViewController: UIViewController {
         addressBar.translatesAutoresizingMaskIntoConstraints = false
         topBarView.addSubview(addressBar)
         NSLayoutConstraint.activate([
-            addressBar.leadingAnchor.constraint(equalTo: topBarView.leadingAnchor),
-            addressBar.trailingAnchor.constraint(equalTo: topBarView.trailingAnchor),
-            addressBar.topAnchor.constraint(equalTo: topBarView.topAnchor),
-            addressBar.bottomAnchor.constraint(equalTo: topBarView.bottomAnchor)
+            addressBar.leadingAnchor.constraint(equalTo: topBarView.leadingAnchor, constant: 14),
+            addressBar.trailingAnchor.constraint(equalTo: topBarView.trailingAnchor, constant: -14),
+            addressBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 5),
+            addressBar.heightAnchor.constraint(equalToConstant: 40),
+            addressBar.bottomAnchor.constraint(equalTo: topBarView.bottomAnchor, constant: -7),
+
+            topBarBottomBorder.leadingAnchor.constraint(equalTo: topBarView.leadingAnchor),
+            topBarBottomBorder.trailingAnchor.constraint(equalTo: topBarView.trailingAnchor),
+            topBarBottomBorder.bottomAnchor.constraint(equalTo: topBarView.bottomAnchor),
+            topBarBottomBorder.heightAnchor.constraint(equalToConstant: 0.5)
         ])
 
         view.addSubview(topBarView)
@@ -248,8 +280,8 @@ final class BrowserViewController: UIViewController {
     }
 
     private func setupToolbar() {
-        backButton = UIBarButtonItem(image: UIImage(systemName: "chevron.left"), style: .plain, target: self, action: #selector(goBack))
-        forwardButton = UIBarButtonItem(image: UIImage(systemName: "chevron.right"), style: .plain, target: self, action: #selector(goForward))
+        backButton = UIBarButtonItem(image: UIImage(systemName: "arrow.left"), style: .plain, target: self, action: #selector(goBack))
+        forwardButton = UIBarButtonItem(image: UIImage(systemName: "arrow.right"), style: .plain, target: self, action: #selector(goForward))
         homeButton = UIBarButtonItem(image: UIImage(systemName: "house"), style: .plain, target: self, action: #selector(openDefaultBank))
         shareButton = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.up"), style: .plain, target: self, action: #selector(sharePage))
         backButton.accessibilityLabel = "Назад"
@@ -258,25 +290,24 @@ final class BrowserViewController: UIViewController {
         homeButton.accessibilityIdentifier = "browser.home"
         updateDefaultBankLabel()
 
-        let fixedSpace = UIBarButtonItem(barButtonSystemItem: .fixedSpace, target: nil, action: nil)
-        fixedSpace.width = 20
         func flexSpace() -> UIBarButtonItem { UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil) }
 
         tabsButton = UIBarButtonItem(image: makeTabsIcon(count: tabCount), style: .plain, target: self, action: #selector(showTabs))
         tabsButton.accessibilityIdentifier = "browser.tabs"
         tabsButton.accessibilityLabel = "Вкладки: \(tabCount)"
 
-        toolbar.items = [backButton, fixedSpace, forwardButton, flexSpace(), homeButton, flexSpace(), shareButton, flexSpace(), tabsButton]
+        toolbar.items = [backButton, flexSpace(), forwardButton, flexSpace(), homeButton, flexSpace(), shareButton, flexSpace(), tabsButton]
 
+        toolbar.backgroundColor = .clear
+        toolbar.barTintColor = ChromeTheme.barBackground
+        toolbar.tintColor = .label
         toolbar.setBackgroundImage(UIImage(), forToolbarPosition: .any, barMetrics: .default)
         toolbar.setShadowImage(UIImage(), forToolbarPosition: .any)
 
-        let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
-        blur.translatesAutoresizingMaskIntoConstraints = false
-        bottomBarContainer.addSubview(blur)
+        bottomBarContainer.backgroundColor = ChromeTheme.barBackground
 
         let topBorder = UIView()
-        topBorder.backgroundColor = .separator
+        topBorder.backgroundColor = ChromeTheme.separator
         topBorder.translatesAutoresizingMaskIntoConstraints = false
         bottomBarContainer.addSubview(topBorder)
 
@@ -284,11 +315,6 @@ final class BrowserViewController: UIViewController {
         bottomBarContainer.addSubview(toolbar)
 
         NSLayoutConstraint.activate([
-            blur.leadingAnchor.constraint(equalTo: bottomBarContainer.leadingAnchor),
-            blur.trailingAnchor.constraint(equalTo: bottomBarContainer.trailingAnchor),
-            blur.topAnchor.constraint(equalTo: bottomBarContainer.topAnchor),
-            blur.bottomAnchor.constraint(equalTo: bottomBarContainer.bottomAnchor),
-
             topBorder.leadingAnchor.constraint(equalTo: bottomBarContainer.leadingAnchor),
             topBorder.trailingAnchor.constraint(equalTo: bottomBarContainer.trailingAnchor),
             topBorder.topAnchor.constraint(equalTo: bottomBarContainer.topAnchor),
@@ -455,12 +481,11 @@ final class BrowserViewController: UIViewController {
         webViewBottomConstraint = webView.bottomAnchor.constraint(equalTo: bottomBarContainer.topAnchor)
 
         NSLayoutConstraint.activate([
-            topBarView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
-            topBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            topBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            topBarView.heightAnchor.constraint(equalToConstant: 38),
+            topBarView.topAnchor.constraint(equalTo: view.topAnchor),
+            topBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
-            progressView.topAnchor.constraint(equalTo: topBarView.bottomAnchor, constant: 4),
+            progressView.topAnchor.constraint(equalTo: topBarView.bottomAnchor),
             progressView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             progressView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             progressView.heightAnchor.constraint(equalToConstant: 2),
