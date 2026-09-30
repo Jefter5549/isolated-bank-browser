@@ -291,12 +291,12 @@ final class BrowserViewController: UIViewController {
         descLabel.numberOfLines = 0
 
         var settingsConfig = UIButton.Configuration.filled()
-        settingsConfig.title = "Настройки VPN"
+        settingsConfig.title = "Настройки"
         settingsConfig.cornerStyle = .capsule
         settingsConfig.buttonSize = .medium
         vpnSettingsButton.configuration = settingsConfig
         vpnSettingsButton.tintColor = .systemBlue
-        vpnSettingsButton.accessibilityLabel = "Открыть настройки VPN"
+        vpnSettingsButton.accessibilityLabel = "Открыть системные настройки"
         vpnSettingsButton.accessibilityIdentifier = "browser.vpnSettings"
         vpnSettingsButton.addTarget(self, action: #selector(openVPNSettings), for: .touchUpInside)
 

@@ -54,7 +54,7 @@ check("VPN warning preference restored", restoredPrefs.warnOnVPN == false)
 preferences.warnOnVPN = true
 check("VPN warning re-enabled", preferences.warnOnVPN == true)
 
-check("utun interface recognized in scoped VPN", VPNMonitor.isScopedVPNInterfaceName("utun0"))
+check("utun interface excluded from scoped VPN to prevent false positives", !VPNMonitor.isScopedVPNInterfaceName("utun0"))
 check("ppp interface recognized in scoped VPN", VPNMonitor.isScopedVPNInterfaceName("ppp0"))
 check("ipsec interface recognized in scoped VPN", VPNMonitor.isScopedVPNInterfaceName("ipsec1"))
 check("tun interface recognized in scoped VPN", VPNMonitor.isScopedVPNInterfaceName("tun3"))

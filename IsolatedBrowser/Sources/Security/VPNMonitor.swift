@@ -40,12 +40,18 @@ final class VPNMonitor {
     }
 
     /// Проверяет физическое наличие активного VPN соединения.
-    /// Предотвращает ложные срабатывания (например, utun системных служб Apple, AirDrop или Private Relay).
+    /// Предотвращает ложные срабатывания (utun системных служб Apple, AirDrop, Private Relay, AWDL).
     static func checkActiveVPN(path: NWPath? = nil) -> Bool {
+        // 1. Проверяем NWPath: если система сообщает, что трафик идет через интерфейс типа .other (VPN-туннель)
+        if let path = path, path.status == .satisfied, path.usesInterfaceType(.other) {
+            return true
+        }
+
         #if canImport(CFNetwork)
-        // 1. Наиболее надежный способ детекта VPN в iOS без ложных срабатываний:
-        // Системный словарь __SCOPED__ в CFNetwork содержит активные интерфейсы туннелей (tap, tun, ppp, ipsec),
-        // привязанные к маршрутизации сетевого стека.
+        // 2. Системные scoped настройки прокси:
+        // Проверяем наличие интерфейсов tap, tun, ppp, ipsec.
+        // utun намеренно НЕ включаем сюда, так как в iOS utun0..utun3 почти всегда создаются
+        // системными демонами (mDNSResponder, CloudKit, Private Relay) даже при выключенном VPN.
         if let proxySettings = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any],
            let scoped = proxySettings["__SCOPED__"] as? [String: Any] {
             for key in scoped.keys {
@@ -57,15 +63,8 @@ final class VPNMonitor {
         }
         #endif
 
-        // 2. Если NWPath активен и системно использует тип .other
-        if let path = path, path.status == .satisfied, path.usesInterfaceType(.other) {
-            return true
-        }
-
-        // 3. Дополнительная проверка getifaddrs:
-        // В современных iOS utun0..utun3 часто заняты локальными демонами Apple.
-        // Явные VPN туннели используют ppp, ipsec, tun, tap.
-        // utun учитывается только если это кастомный utun с активным IP-адресом и p2p флагом (IFF_POINTOPOINT).
+        // 3. Проверка getifaddrs на явные туннельные интерфейсы (ppp, ipsec, tun, tap).
+        // Никаких utun здесь не проверяем, чтобы исключить ложные срабатывания на iOS.
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return false }
         defer { freeifaddrs(ifaddr) }
@@ -85,12 +84,6 @@ final class VPNMonitor {
             if isExplicitVPNInterfaceName(name) {
                 return true
             }
-
-            // utun: проверяем Point-to-Point флаг и отсекаем utun0 (системный default в iOS)
-            let isPointToPoint = (flags & IFF_POINTOPOINT) == IFF_POINTOPOINT
-            if isPointToPoint && name.hasPrefix("utun") && name != "utun0" {
-                return true
-            }
         }
         return false
     }
@@ -100,8 +93,7 @@ final class VPNMonitor {
         name.hasPrefix("ppp") ||
         name.hasPrefix("ipsec") ||
         name.hasPrefix("tun") ||
-        name.hasPrefix("tap") ||
-        name.hasPrefix("utun")
+        name.hasPrefix("tap")
     }
 
     /// Явные туннельные интерфейсы getifaddrs
@@ -112,23 +104,44 @@ final class VPNMonitor {
         name.hasPrefix("tap")
     }
 
-    /// Открывает экран VPN в системных Настройках iOS
+    /// Открывает системные Настройки iOS
     static func openVPNSettings() {
         #if canImport(UIKit)
         let candidates = [
-            "App-Prefs:root=General&path=Network/VPN",
             "App-Prefs:root=General&path=VPN",
             "App-prefs:root=General&path=VPN",
+            "App-Prefs:root=VPN",
+            "App-prefs:root=VPN",
+            "prefs:root=General&path=VPN",
+            "prefs:root=VPN",
+            "App-Prefs:root=",
+            "App-prefs:root=",
+            "App-Prefs:",
+            "App-prefs:",
             UIApplication.openSettingsURLString
         ]
         for candidate in candidates {
-            if let url = URL(string: candidate), UIApplication.shared.canOpenURL(url) {
+            guard let url = URL(string: candidate) else { continue }
+            // Не используем canOpenURL, так как приватные URL-схемы Apple (App-Prefs/prefs)
+            // блокируются canOpenURL без LSApplicationQueriesSchemes, но успешно открываются через open().
+            if UIApplication.shared.canOpenURL(url) {
                 UIApplication.shared.open(url)
                 return
             }
         }
-        if let url = URL(string: UIApplication.openSettingsURLString) {
-            UIApplication.shared.open(url)
+        // Если canOpenURL вернул false для всех схем, вызываем open() напрямую для главного экрана Настроек:
+        if let rootURL = URL(string: "App-prefs:root=General&path=VPN") {
+            UIApplication.shared.open(rootURL, options: [:]) { success in
+                if !success, let generalSettingsURL = URL(string: "App-prefs:root=") {
+                    UIApplication.shared.open(generalSettingsURL, options: [:]) { rootSuccess in
+                        if !rootSuccess, let appSettings = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(appSettings)
+                        }
+                    }
+                }
+            }
+        } else if let appSettings = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(appSettings)
         }
         #endif
     }
