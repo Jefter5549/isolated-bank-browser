@@ -1,6 +1,6 @@
 import UIKit
 
-final class BankPickerViewController: UITableViewController {
+final class BankPickerViewController: UITableViewController, UITableViewDragDelegate, UITableViewDropDelegate {
     private let preferences: BrowserPreferences
     private let onOpen: (Bank) -> Void
     private let onDefaultChanged: () -> Void
@@ -22,9 +22,9 @@ final class BankPickerViewController: UITableViewController {
         navigationController?.view.tintColor = .systemBlue
         navigationController?.navigationBar.prefersLargeTitles = true
         
-        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
-        longPress.minimumPressDuration = 0.28
-        tableView.addGestureRecognizer(longPress)
+        tableView.dragInteractionEnabled = true
+        tableView.dragDelegate = self
+        tableView.dropDelegate = self
         
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 58
@@ -198,86 +198,52 @@ final class BankPickerViewController: UITableViewController {
         return configuration
     }
 
-    // MARK: - Native Hold & Drag Reorder
-    private var draggingSnapshot: UIView?
-    private var currentDraggingIndexPath: IndexPath?
+    // MARK: - Native Drag & Drop Reorder
+    func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
+        guard indexPath.section == 1 else { return [] }
+        let bank = preferences.services[indexPath.row]
+        let itemProvider = NSItemProvider(object: bank.id as NSString)
+        let item = UIDragItem(itemProvider: itemProvider)
+        item.localObject = bank
+        return [item]
+    }
 
-    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-        let location = gesture.location(in: tableView)
+    func tableView(_ tableView: UITableView, dragPreviewParametersForRowAt indexPath: IndexPath) -> UIDragPreviewParameters? {
+        guard let cell = tableView.cellForRow(at: indexPath) else { return nil }
+        let params = UIDragPreviewParameters()
+        let roundedPath = UIBezierPath(roundedRect: cell.bounds.insetBy(dx: 16, dy: 0), cornerRadius: 10)
+        params.visiblePath = roundedPath
+        params.backgroundColor = .clear
+        return params
+    }
 
-        switch gesture.state {
-        case .began:
-            guard let indexPath = tableView.indexPathForRow(at: location), indexPath.section == 1 else { return }
-            guard let cell = tableView.cellForRow(at: indexPath) else { return }
+    func tableView(_ tableView: UITableView, dropPreviewParametersForRowAt indexPath: IndexPath) -> UIDragPreviewParameters? {
+        guard let cell = tableView.cellForRow(at: indexPath) else { return nil }
+        let params = UIDragPreviewParameters()
+        let roundedPath = UIBezierPath(roundedRect: cell.bounds.insetBy(dx: 16, dy: 0), cornerRadius: 10)
+        params.visiblePath = roundedPath
+        params.backgroundColor = .clear
+        return params
+    }
 
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            currentDraggingIndexPath = indexPath
+    func tableView(_ tableView: UITableView, dropSessionDidUpdate session: UIDropSession, withDestinationIndexPath destinationIndexPath: IndexPath?) -> UITableViewDropProposal {
+        if let dest = destinationIndexPath, dest.section == 1 {
+            return UITableViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
+        }
+        return UITableViewDropProposal(operation: .cancel)
+    }
 
-            // Create a lifted snapshot of the cell
-            let snapshot = cell.snapshotView(afterScreenUpdates: false) ?? UIView(frame: cell.bounds)
-            snapshot.frame = cell.frame
-            snapshot.layer.cornerRadius = 10
-            snapshot.layer.masksToBounds = false
-            snapshot.layer.shadowColor = UIColor.black.cgColor
-            snapshot.layer.shadowOpacity = 0.25
-            snapshot.layer.shadowOffset = CGSize(width: 0, height: 8)
-            snapshot.layer.shadowRadius = 14
-            tableView.addSubview(snapshot)
-            draggingSnapshot = snapshot
+    func tableView(_ tableView: UITableView, performDropWith coordinator: UITableViewDropCoordinator) {
+        guard let item = coordinator.items.first,
+              let sourceIndex = item.sourceIndexPath,
+              let destIndex = coordinator.destinationIndexPath,
+              sourceIndex.section == 1, destIndex.section == 1 else { return }
 
-            cell.alpha = 0
-            UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {
-                snapshot.transform = CGAffineTransform(scaleX: 1.03, y: 1.03)
-                snapshot.alpha = 0.98
-            }
+        preferences.reorderServices(from: sourceIndex.row, to: destIndex.row)
+        coordinator.drop(item.dragItem, toRowAt: destIndex)
 
-        case .changed:
-            guard let snapshot = draggingSnapshot, let currentIndex = currentDraggingIndexPath else { return }
-            snapshot.center.y = location.y
-
-            // Auto-scroll when near top or bottom edges
-            let bounds = tableView.bounds
-            let topThreshold = bounds.minY + 60
-            let bottomThreshold = bounds.maxY - 60
-            if location.y < topThreshold && tableView.contentOffset.y > 0 {
-                let offset = max(0, tableView.contentOffset.y - 6)
-                tableView.setContentOffset(CGPoint(x: 0, y: offset), animated: false)
-            } else if location.y > bottomThreshold && tableView.contentOffset.y + bounds.height < tableView.contentSize.height {
-                let offset = min(tableView.contentSize.height - bounds.height, tableView.contentOffset.y + 6)
-                tableView.setContentOffset(CGPoint(x: 0, y: offset), animated: false)
-            }
-
-            // Check if hovered over another row in section 1
-            if let targetIndexPath = tableView.indexPathForRow(at: location),
-               targetIndexPath.section == 1,
-               targetIndexPath != currentIndex {
-                preferences.reorderServices(from: currentIndex.row, to: targetIndexPath.row)
-                tableView.moveRow(at: currentIndex, to: targetIndexPath)
-                currentDraggingIndexPath = targetIndexPath
-                UISelectionFeedbackGenerator().selectionChanged()
-            }
-
-        case .ended, .cancelled:
-            guard let snapshot = draggingSnapshot, let currentIndex = currentDraggingIndexPath else { return }
-            let targetCell = tableView.cellForRow(at: currentIndex)
-            let destinationFrame = targetCell?.frame ?? snapshot.frame
-
-            UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.5, options: .curveEaseOut, animations: {
-                snapshot.transform = .identity
-                snapshot.frame = destinationFrame
-                snapshot.layer.shadowOpacity = 0
-            }, completion: { [weak self] _ in
-                targetCell?.alpha = 1.0
-                snapshot.removeFromSuperview()
-                self?.draggingSnapshot = nil
-                self?.currentDraggingIndexPath = nil
-                // Clean reload to ensure section corner radii and insets remain pixel-perfect
-                self?.tableView.reloadData()
-            })
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-
-        default:
-            break
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            self?.tableView.reloadData()
         }
     }
 
