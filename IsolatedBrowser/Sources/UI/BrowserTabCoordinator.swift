@@ -86,33 +86,32 @@ final class BrowserTabCoordinator {
     private func showTabs() {
         guard navigationController.presentedViewController == nil else { return }
         let current = navigationController.topViewController as? BrowserViewController
-        current?.captureSnapshot { [weak self] _ in
-            guard let self = self else { return }
-            let grid = BrowserTabsGridViewController()
-            grid.getTabs = { [weak self] in self?.tabs ?? [] }
-            grid.isSelected = { [weak self] browser in
-                self?.navigationController.topViewController === browser
-            }
-            grid.onSelect = { [weak self, weak grid] browser in
-                grid?.dismiss(animated: true) { self?.select(browser) }
-            }
-            grid.onClose = { [weak self] browser in
-                self?.close(browser)
-            }
-            grid.onNew = { [weak self, weak grid] in
-                grid?.dismiss(animated: true) { _ = self?.addTab() }
-            }
-            self.picker = grid
-            let sheet = UINavigationController(rootViewController: grid)
-            sheet.modalPresentationStyle = .pageSheet
-            sheet.sheetPresentationController?.detents = [.large()]
-            sheet.sheetPresentationController?.prefersGrabberVisible = true
-            self.navigationController.present(sheet, animated: true)
+        current?.captureSnapshot(completion: { _ in })
+
+        let grid = BrowserTabsGridViewController()
+        grid.getTabs = { [weak self] in self?.tabs ?? [] }
+        grid.isSelected = { [weak self] browser in
+            self?.navigationController.topViewController === browser
         }
+        grid.onSelect = { [weak self, weak grid] browser in
+            self?.select(browser)
+            grid?.dismiss(animated: true)
+        }
+        grid.onClose = { [weak self] browser in
+            self?.close(browser)
+        }
+        grid.onNew = { [weak self, weak grid] in
+            let _ = self?.addTab()
+            grid?.dismiss(animated: true)
+        }
+        self.picker = grid
+        grid.modalPresentationStyle = .fullScreen
+        grid.modalTransitionStyle = .coverVertical
+        navigationController.present(grid, animated: true)
     }
 }
 
-// MARK: - Modern 2-Column Tab Switcher Grid
+// MARK: - Chrome-Grade Mobile Tab Switcher Grid
 final class BrowserTabsGridViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     var getTabs: () -> [BrowserViewController] = { [] }
     var isSelected: (BrowserViewController) -> Bool = { _ in false }
@@ -121,30 +120,145 @@ final class BrowserTabsGridViewController: UIViewController, UICollectionViewDat
     var onNew: (() -> Void)?
 
     private var collectionView: UICollectionView!
-    private let bottomToolbar = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
-    private let tabCountLabel = UILabel()
+    private let topBar = UIView()
+    private let bottomToolbar = UIView()
+    private let tabCountBadgeLabel = UILabel()
+
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Вкладки"
-        view.backgroundColor = .systemGroupedBackground
-        navigationController?.navigationBar.prefersLargeTitles = true
+        view.backgroundColor = UIColor(red: 0.08, green: 0.08, blue: 0.09, alpha: 1.0)
 
+        setupTopBar()
         setupCollectionView()
         setupBottomToolbar()
     }
 
     func reloadData() {
         collectionView.reloadData()
-        updateTabCountLabel()
+        updateTabCountBadge()
+    }
+
+    private func setupTopBar() {
+        topBar.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(topBar)
+
+        // Center Pill (Chrome style)
+        let pill = UIView()
+        pill.backgroundColor = UIColor(white: 0.18, alpha: 1.0)
+        pill.layer.cornerRadius = 18
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        topBar.addSubview(pill)
+
+        let maskIcon = UIImageView(image: UIImage(systemName: "eyeglasses"))
+        maskIcon.tintColor = UIColor.white.withAlphaComponent(0.7)
+        maskIcon.contentMode = .scaleAspectFit
+        maskIcon.translatesAutoresizingMaskIntoConstraints = false
+        pill.addSubview(maskIcon)
+
+        let badgeContainer = UIView()
+        badgeContainer.layer.borderWidth = 1.5
+        badgeContainer.layer.borderColor = UIColor.white.cgColor
+        badgeContainer.layer.cornerRadius = 5
+        badgeContainer.translatesAutoresizingMaskIntoConstraints = false
+        pill.addSubview(badgeContainer)
+
+        tabCountBadgeLabel.font = .systemFont(ofSize: 11, weight: .bold)
+        tabCountBadgeLabel.textColor = .white
+        tabCountBadgeLabel.textAlignment = .center
+        tabCountBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        badgeContainer.addSubview(tabCountBadgeLabel)
+
+        let gridIcon = UIImageView(image: UIImage(systemName: "square.grid.2x2"))
+        gridIcon.tintColor = UIColor.white.withAlphaComponent(0.7)
+        gridIcon.contentMode = .scaleAspectFit
+        gridIcon.translatesAutoresizingMaskIntoConstraints = false
+        pill.addSubview(gridIcon)
+
+        // Left Search Icon
+        let searchBtn = UIButton(type: .system)
+        let searchConfig = UIImage.SymbolConfiguration(pointSize: 17, weight: .medium)
+        searchBtn.setImage(UIImage(systemName: "magnifyingglass", withConfiguration: searchConfig), for: .normal)
+        searchBtn.tintColor = .white
+        searchBtn.translatesAutoresizingMaskIntoConstraints = false
+        topBar.addSubview(searchBtn)
+
+        // Right Overflow Icon
+        let dotsBtn = UIButton(type: .system)
+        let dotsConfig = UIImage.SymbolConfiguration(pointSize: 17, weight: .medium)
+        dotsBtn.setImage(UIImage(systemName: "ellipsis", withConfiguration: dotsConfig), for: .normal)
+        dotsBtn.tintColor = .white
+        dotsBtn.showsMenuAsPrimaryAction = true
+        dotsBtn.menu = UIMenu(children: [
+            UIAction(title: "Новая вкладка", image: UIImage(systemName: "plus")) { [weak self] _ in
+                self?.onNew?()
+            },
+            UIAction(title: "Закрыть все вкладки", image: UIImage(systemName: "xmark.circle"), attributes: .destructive) { [weak self] _ in
+                guard let self = self else { return }
+                let tabs = self.getTabs()
+                for tab in tabs {
+                    self.onClose?(tab)
+                }
+                self.reloadData()
+            }
+        ])
+        dotsBtn.translatesAutoresizingMaskIntoConstraints = false
+        topBar.addSubview(dotsBtn)
+
+        NSLayoutConstraint.activate([
+            topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topBar.heightAnchor.constraint(equalToConstant: 48),
+
+            searchBtn.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
+            searchBtn.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            searchBtn.widthAnchor.constraint(equalToConstant: 36),
+            searchBtn.heightAnchor.constraint(equalToConstant: 36),
+
+            dotsBtn.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
+            dotsBtn.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            dotsBtn.widthAnchor.constraint(equalToConstant: 36),
+            dotsBtn.heightAnchor.constraint(equalToConstant: 36),
+
+            pill.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
+            pill.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            pill.heightAnchor.constraint(equalToConstant: 36),
+            pill.widthAnchor.constraint(equalToConstant: 130),
+
+            maskIcon.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 14),
+            maskIcon.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+            maskIcon.widthAnchor.constraint(equalToConstant: 20),
+            maskIcon.heightAnchor.constraint(equalToConstant: 20),
+
+            badgeContainer.centerXAnchor.constraint(equalTo: pill.centerXAnchor),
+            badgeContainer.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+            badgeContainer.widthAnchor.constraint(equalToConstant: 20),
+            badgeContainer.heightAnchor.constraint(equalToConstant: 20),
+
+            tabCountBadgeLabel.centerXAnchor.constraint(equalTo: badgeContainer.centerXAnchor),
+            tabCountBadgeLabel.centerYAnchor.constraint(equalTo: badgeContainer.centerYAnchor),
+
+            gridIcon.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -14),
+            gridIcon.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+            gridIcon.widthAnchor.constraint(equalToConstant: 18),
+            gridIcon.heightAnchor.constraint(equalToConstant: 18)
+        ])
+
+        updateTabCountBadge()
+    }
+
+    private func updateTabCountBadge() {
+        tabCountBadgeLabel.text = "\(getTabs().count)"
     }
 
     private func setupCollectionView() {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .vertical
-        layout.minimumInteritemSpacing = 14
-        layout.minimumLineSpacing = 16
-        layout.sectionInset = UIEdgeInsets(top: 14, left: 16, bottom: 90, right: 16)
+        layout.minimumInteritemSpacing = 12
+        layout.minimumLineSpacing = 14
+        layout.sectionInset = UIEdgeInsets(top: 8, left: 14, bottom: 90, right: 14)
 
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.backgroundColor = .clear
@@ -156,7 +270,7 @@ final class BrowserTabsGridViewController: UIViewController, UICollectionViewDat
         view.addSubview(collectionView)
 
         NSLayoutConstraint.activate([
-            collectionView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            collectionView.topAnchor.constraint(equalTo: topBar.bottomAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
@@ -164,76 +278,51 @@ final class BrowserTabsGridViewController: UIViewController, UICollectionViewDat
     }
 
     private func setupBottomToolbar() {
+        bottomToolbar.backgroundColor = UIColor(red: 0.08, green: 0.08, blue: 0.09, alpha: 0.95)
         bottomToolbar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bottomToolbar)
 
-        let hairline = UIView()
-        hairline.backgroundColor = .separator
-        hairline.translatesAutoresizingMaskIntoConstraints = false
-        bottomToolbar.contentView.addSubview(hairline)
-
-        tabCountLabel.font = .preferredFont(forTextStyle: .subheadline)
-        tabCountLabel.textColor = .secondaryLabel
-        tabCountLabel.translatesAutoresizingMaskIntoConstraints = false
-        bottomToolbar.contentView.addSubview(tabCountLabel)
-
         let addBtn = UIButton(type: .system)
-        let plusConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .bold)
+        let plusConfig = UIImage.SymbolConfiguration(pointSize: 22, weight: .bold)
         addBtn.setImage(UIImage(systemName: "plus", withConfiguration: plusConfig), for: .normal)
-        addBtn.tintColor = .systemBlue
-        addBtn.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.12)
-        addBtn.layer.cornerRadius = 20
+        addBtn.tintColor = UIColor(red: 0.08, green: 0.11, blue: 0.18, alpha: 1.0)
+        addBtn.backgroundColor = UIColor(red: 0.54, green: 0.73, blue: 0.98, alpha: 1.0) // Chrome Accent Light Blue
+        addBtn.layer.cornerRadius = 24
+        addBtn.layer.shadowColor = UIColor.black.cgColor
+        addBtn.layer.shadowOpacity = 0.3
+        addBtn.layer.shadowRadius = 8
+        addBtn.layer.shadowOffset = CGSize(width: 0, height: 4)
         addBtn.accessibilityLabel = "Новая вкладка"
         addBtn.translatesAutoresizingMaskIntoConstraints = false
         addBtn.addAction(UIAction { [weak self] _ in self?.onNew?() }, for: .touchUpInside)
-        bottomToolbar.contentView.addSubview(addBtn)
+        bottomToolbar.addSubview(addBtn)
 
         let doneBtn = UIButton(type: .system)
         doneBtn.setTitle("Готово", for: .normal)
-        doneBtn.titleLabel?.font = .preferredFont(forTextStyle: .headline)
-        doneBtn.tintColor = .systemBlue
+        doneBtn.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        doneBtn.setTitleColor(.white, for: .normal)
+        doneBtn.backgroundColor = UIColor(white: 0.22, alpha: 1.0)
+        doneBtn.layer.cornerRadius = 18
         doneBtn.translatesAutoresizingMaskIntoConstraints = false
         doneBtn.addAction(UIAction { [weak self] _ in self?.dismiss(animated: true) }, for: .touchUpInside)
-        bottomToolbar.contentView.addSubview(doneBtn)
+        bottomToolbar.addSubview(doneBtn)
 
         NSLayoutConstraint.activate([
             bottomToolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomToolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomToolbar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            bottomToolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -60),
-
-            hairline.topAnchor.constraint(equalTo: bottomToolbar.topAnchor),
-            hairline.leadingAnchor.constraint(equalTo: bottomToolbar.leadingAnchor),
-            hairline.trailingAnchor.constraint(equalTo: bottomToolbar.trailingAnchor),
-            hairline.heightAnchor.constraint(equalToConstant: 0.5),
-
-            tabCountLabel.leadingAnchor.constraint(equalTo: bottomToolbar.leadingAnchor, constant: 18),
-            tabCountLabel.centerYAnchor.constraint(equalTo: bottomToolbar.topAnchor, constant: 30),
+            bottomToolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -64),
 
             addBtn.centerXAnchor.constraint(equalTo: bottomToolbar.centerXAnchor),
-            addBtn.centerYAnchor.constraint(equalTo: bottomToolbar.topAnchor, constant: 30),
-            addBtn.widthAnchor.constraint(equalToConstant: 40),
-            addBtn.heightAnchor.constraint(equalToConstant: 40),
+            addBtn.topAnchor.constraint(equalTo: bottomToolbar.topAnchor, constant: 8),
+            addBtn.widthAnchor.constraint(equalToConstant: 48),
+            addBtn.heightAnchor.constraint(equalToConstant: 48),
 
-            doneBtn.trailingAnchor.constraint(equalTo: bottomToolbar.trailingAnchor, constant: -18),
-            doneBtn.centerYAnchor.constraint(equalTo: bottomToolbar.topAnchor, constant: 30)
+            doneBtn.trailingAnchor.constraint(equalTo: bottomToolbar.trailingAnchor, constant: -16),
+            doneBtn.centerYAnchor.constraint(equalTo: addBtn.centerYAnchor),
+            doneBtn.widthAnchor.constraint(equalToConstant: 80),
+            doneBtn.heightAnchor.constraint(equalToConstant: 36)
         ])
-
-        updateTabCountLabel()
-    }
-
-    private func updateTabCountLabel() {
-        let count = getTabs().count
-        tabCountLabel.text = "\(count) \(tabWord(for: count))"
-    }
-
-    private func tabWord(for count: Int) -> String {
-        let mod10 = count % 10
-        let mod100 = count % 100
-        if mod100 >= 11 && mod100 <= 19 { return "вкладок" }
-        if mod10 == 1 { return "вкладка" }
-        if mod10 >= 2 && mod10 <= 4 { return "вкладки" }
-        return "вкладок"
     }
 
     // MARK: - UICollectionViewDataSource
@@ -260,9 +349,9 @@ final class BrowserTabsGridViewController: UIViewController, UICollectionViewDat
     // MARK: - UICollectionViewDelegateFlowLayout
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let availableWidth = collectionView.bounds.width - 32 - 14 // left/right insets (32) + spacing (14)
+        let availableWidth = collectionView.bounds.width - 28 - 12
         let width = max(140, floor(availableWidth / 2))
-        let height = floor(width * 1.32)
+        let height = floor(width * 1.34)
         return CGSize(width: width, height: height)
     }
 
@@ -273,7 +362,7 @@ final class BrowserTabsGridViewController: UIViewController, UICollectionViewDat
     }
 }
 
-// MARK: - Modern Tab Grid Cell
+// MARK: - Chrome-Style Tab Grid Cell
 final class BrowserTabGridCell: UICollectionViewCell {
     private let containerView = UIView()
     private let headerBar = UIView()
@@ -296,33 +385,31 @@ final class BrowserTabGridCell: UICollectionViewCell {
     private func setupViews() {
         contentView.backgroundColor = .clear
 
-        containerView.layer.cornerRadius = 14
+        containerView.layer.cornerRadius = 16
         containerView.layer.masksToBounds = true
-        containerView.backgroundColor = .secondarySystemGroupedBackground
+        containerView.backgroundColor = UIColor(red: 0.16, green: 0.16, blue: 0.18, alpha: 1.0)
         containerView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(containerView)
 
         // Header bar
-        headerBar.backgroundColor = .tertiarySystemGroupedBackground
+        headerBar.backgroundColor = UIColor(red: 0.16, green: 0.16, blue: 0.18, alpha: 1.0)
         headerBar.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(headerBar)
 
         iconImageView.contentMode = .scaleAspectFit
-        iconImageView.tintColor = .systemBlue
+        iconImageView.tintColor = .white
         iconImageView.translatesAutoresizingMaskIntoConstraints = false
         headerBar.addSubview(iconImageView)
 
-        titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-        titleLabel.textColor = .label
+        titleLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        titleLabel.textColor = .white
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         headerBar.addSubview(titleLabel)
 
-        let xConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)
+        let xConfig = UIImage.SymbolConfiguration(pointSize: 12, weight: .bold)
         closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: xConfig), for: .normal)
-        closeButton.tintColor = .secondaryLabel
-        closeButton.backgroundColor = UIColor.label.withAlphaComponent(0.08)
-        closeButton.layer.cornerRadius = 12
+        closeButton.tintColor = UIColor.white.withAlphaComponent(0.75)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.addAction(UIAction { [weak self] _ in self?.onClose?() }, for: .touchUpInside)
         headerBar.addSubview(closeButton)
@@ -330,21 +417,21 @@ final class BrowserTabGridCell: UICollectionViewCell {
         // Preview image
         previewImageView.contentMode = .scaleAspectFill
         previewImageView.clipsToBounds = true
-        previewImageView.backgroundColor = .systemBackground
+        previewImageView.backgroundColor = UIColor(red: 0.12, green: 0.12, blue: 0.13, alpha: 1.0)
         previewImageView.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(previewImageView)
 
         // Placeholder for tabs without snapshot
-        placeholderView.backgroundColor = .systemBackground
+        placeholderView.backgroundColor = UIColor(red: 0.12, green: 0.12, blue: 0.13, alpha: 1.0)
         placeholderView.translatesAutoresizingMaskIntoConstraints = false
         let globeConfig = UIImage.SymbolConfiguration(pointSize: 32, weight: .light)
         let placeholderIcon = UIImageView(image: UIImage(systemName: "globe", withConfiguration: globeConfig))
-        placeholderIcon.tintColor = .tertiaryLabel
+        placeholderIcon.tintColor = UIColor.white.withAlphaComponent(0.25)
         placeholderIcon.translatesAutoresizingMaskIntoConstraints = false
         placeholderView.addSubview(placeholderIcon)
 
-        placeholderLabel.font = .preferredFont(forTextStyle: .caption2)
-        placeholderLabel.textColor = .secondaryLabel
+        placeholderLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        placeholderLabel.textColor = UIColor.white.withAlphaComponent(0.6)
         placeholderLabel.textAlignment = .center
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         placeholderView.addSubview(placeholderLabel)
@@ -360,20 +447,20 @@ final class BrowserTabGridCell: UICollectionViewCell {
             headerBar.topAnchor.constraint(equalTo: containerView.topAnchor),
             headerBar.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             headerBar.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            headerBar.heightAnchor.constraint(equalToConstant: 34),
+            headerBar.heightAnchor.constraint(equalToConstant: 38),
 
-            iconImageView.leadingAnchor.constraint(equalTo: headerBar.leadingAnchor, constant: 8),
+            iconImageView.leadingAnchor.constraint(equalTo: headerBar.leadingAnchor, constant: 10),
             iconImageView.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
             iconImageView.widthAnchor.constraint(equalToConstant: 16),
             iconImageView.heightAnchor.constraint(equalToConstant: 16),
 
-            closeButton.trailingAnchor.constraint(equalTo: headerBar.trailingAnchor, constant: -6),
+            closeButton.trailingAnchor.constraint(equalTo: headerBar.trailingAnchor, constant: -4),
             closeButton.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-            closeButton.widthAnchor.constraint(equalToConstant: 24),
-            closeButton.heightAnchor.constraint(equalToConstant: 24),
+            closeButton.widthAnchor.constraint(equalToConstant: 36),
+            closeButton.heightAnchor.constraint(equalToConstant: 36),
 
-            titleLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 6),
-            titleLabel.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -6),
+            titleLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 8),
+            titleLabel.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
             titleLabel.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
 
             previewImageView.topAnchor.constraint(equalTo: headerBar.bottomAnchor),
@@ -410,16 +497,16 @@ final class BrowserTabGridCell: UICollectionViewCell {
             iconImageView.tintColor = bank.tintColor
         } else {
             iconImageView.image = UIImage(systemName: "globe")
-            iconImageView.tintColor = .systemBlue
+            iconImageView.tintColor = .white
         }
 
-        // Active border
+        // Active border (Chrome signature blue border)
         if isActive {
-            containerView.layer.borderWidth = 2.5
-            containerView.layer.borderColor = UIColor.systemBlue.cgColor
+            containerView.layer.borderWidth = 3.0
+            containerView.layer.borderColor = UIColor(red: 0.35, green: 0.65, blue: 1.0, alpha: 1.0).cgColor
         } else {
-            containerView.layer.borderWidth = 1
-            containerView.layer.borderColor = UIColor.separator.cgColor
+            containerView.layer.borderWidth = 0.5
+            containerView.layer.borderColor = UIColor.white.withAlphaComponent(0.12).cgColor
         }
 
         // Snapshot preview or placeholder
@@ -433,4 +520,5 @@ final class BrowserTabGridCell: UICollectionViewCell {
         }
     }
 }
+
 
