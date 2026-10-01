@@ -71,7 +71,7 @@ final class BrowserPreferences {
     var services: [Bank] {
         get {
             guard let data = defaults.data(forKey: servicesKey),
-                  let decoded = try? JSONDecoder().decode([Bank].self, data),
+                  let decoded = try? JSONDecoder().decode([Bank].self, from: data),
                   !decoded.isEmpty else {
                 return Bank.defaultList
             }
