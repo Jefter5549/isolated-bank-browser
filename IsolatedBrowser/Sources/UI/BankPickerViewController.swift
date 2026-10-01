@@ -30,7 +30,7 @@ final class BankPickerViewController: UITableViewController {
         navigationItem.rightBarButtonItems = [doneBtn, addBtn]
         
         tableView.rowHeight = UITableView.automaticDimension
-        tableView.estimatedRowHeight = 72
+        tableView.estimatedRowHeight = 58
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Bank")
     }
 
@@ -71,6 +71,8 @@ final class BankPickerViewController: UITableViewController {
 
         if indexPath.section == 3 {
             var content = cell.defaultContentConfiguration()
+            content.axesPreservingSuperviewLayoutMargins = []
+            content.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
             content.text = "Предупреждать о VPN при запуске"
             content.secondaryText = "Приостанавливает загрузку страницы при активном VPN"
             content.textProperties.font = .preferredFont(forTextStyle: .body)
@@ -92,6 +94,8 @@ final class BankPickerViewController: UITableViewController {
 
         if indexPath.section == 2 {
             var content = cell.defaultContentConfiguration()
+            content.axesPreservingSuperviewLayoutMargins = []
+            content.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
             cell.selectionStyle = .default
             cell.accessoryView = nil
             if indexPath.row == 0 {
@@ -114,6 +118,8 @@ final class BankPickerViewController: UITableViewController {
         let bank = indexPath.section == 0 ? preferences.defaultBank : preferences.services[indexPath.row]
         let isDefault = preferences.defaultBank.id == bank.id
         var content = cell.defaultContentConfiguration()
+        content.axesPreservingSuperviewLayoutMargins = []
+        content.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
         content.text = bank.name
         content.secondaryText = indexPath.section == 0 ? "Стартовый сервис" : bank.service
         content.textProperties.font = .preferredFont(forTextStyle: .headline)
@@ -131,16 +137,22 @@ final class BankPickerViewController: UITableViewController {
             cell.accessoryType = .disclosureIndicator
         } else {
             cell.accessoryType = .none
-            let star = UIButton(type: .system)
-            star.frame = CGRect(x: 0, y: 0, width: 44, height: 44)
+            let star: UIButton
+            if let existingStar = cell.accessoryView as? UIButton {
+                star = existingStar
+            } else {
+                star = UIButton(type: .system)
+                star.frame = CGRect(x: 0, y: 0, width: 44, height: 44)
+                cell.accessoryView = star
+            }
             star.setImage(UIImage(systemName: isDefault ? "star.fill" : "star"), for: .normal)
             star.tintColor = isDefault ? .systemOrange : .tertiaryLabel
             star.accessibilityLabel = "\(bank.name): стартовый сервис"
             star.accessibilityValue = isDefault ? "Выбран" : "Не выбран"
             star.accessibilityHint = "Выбрать этот сервис для открытия при запуске"
             star.accessibilityIdentifier = "defaultBank.\(bank.id)"
+            star.removeTarget(nil, action: nil, for: .allEvents)
             star.addAction(UIAction { [weak self] _ in self?.setDefault(bank) }, for: .touchUpInside)
-            cell.accessoryView = star
         }
         return cell
     }
@@ -203,9 +215,40 @@ final class BankPickerViewController: UITableViewController {
 
     // MARK: - Actions
     private func setDefault(_ bank: Bank) {
+        let previousDefault = preferences.defaultBank
         preferences.defaultBank = bank
         onDefaultChanged()
-        tableView.reloadData()
+
+        // 1. Update Section 0 (Startup service row) in-place
+        if let headerCell = tableView.cellForRow(at: IndexPath(row: 0, section: 0)) {
+            var content = headerCell.defaultContentConfiguration()
+            content.axesPreservingSuperviewLayoutMargins = []
+            content.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
+            content.text = bank.name
+            content.secondaryText = "Стартовый сервис"
+            content.textProperties.font = .preferredFont(forTextStyle: .headline)
+            content.secondaryTextProperties.color = .secondaryLabel
+            content.secondaryTextProperties.numberOfLines = 0
+            content.image = UIImage(systemName: "house.fill")
+            content.imageProperties.tintColor = bank.tintColor
+            headerCell.contentConfiguration = content
+            headerCell.accessibilityIdentifier = "bank.0.\(bank.id)"
+        }
+
+        // 2. In-place update of star accessories in Section 1 (no table reload / offset glitch)
+        for (row, item) in preferences.services.enumerated() {
+            if item.id == bank.id || item.id == previousDefault.id {
+                let indexPath = IndexPath(row: row, section: 1)
+                if let cell = tableView.cellForRow(at: indexPath),
+                   let star = cell.accessoryView as? UIButton {
+                    let isDefault = item.id == bank.id
+                    star.setImage(UIImage(systemName: isDefault ? "star.fill" : "star"), for: .normal)
+                    star.tintColor = isDefault ? .systemOrange : .tertiaryLabel
+                    star.accessibilityValue = isDefault ? "Выбран" : "Не выбран"
+                }
+            }
+        }
+
         UISelectionFeedbackGenerator().selectionChanged()
         UIAccessibility.post(notification: .announcement, argument: "\(bank.name) выбран стартовым сервисом")
     }
@@ -264,6 +307,9 @@ final class EditServiceViewController: UIViewController {
     private var selectedIcon: String = "building.columns.fill"
     private var selectedColorHex: String = "#1270E0"
 
+    private var iconButtons: [String: UIButton] = [:]
+    private var colorButtons: [String: UIButton] = [:]
+
     private let iconPreview = UIImageView()
     private let availableIcons: [String] = [
         "doc.text.fill", "building.columns.fill", "creditcard.fill", "shield.fill",
@@ -308,7 +354,12 @@ final class EditServiceViewController: UIViewController {
     }
 
     private func setupUI() {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+        tap.cancelsTouchesInView = false
+        view.addGestureRecognizer(tap)
+
         let scrollView = UIScrollView()
+        scrollView.keyboardDismissMode = .onDrag
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(scrollView)
 
@@ -322,7 +373,7 @@ final class EditServiceViewController: UIViewController {
             scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
 
             stack.topAnchor.constraint(equalTo: scrollView.topAnchor, constant: 20),
             stack.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor, constant: 16),
@@ -347,7 +398,6 @@ final class EditServiceViewController: UIViewController {
             iconPreview.heightAnchor.constraint(equalToConstant: 52)
         ])
         stack.addArrangedSubview(previewCard)
-        updatePreview()
 
         // Form Fields Container
         let formContainer = UIView()
@@ -369,11 +419,32 @@ final class EditServiceViewController: UIViewController {
         ])
 
         nameField.placeholder = "Название (например, ФНС России)"
+        nameField.returnKeyType = .next
+        nameField.clearButtonMode = .whileEditing
+        nameField.delegate = self
+
         serviceField.placeholder = "Описание (например, Личный кабинет)"
+        serviceField.returnKeyType = .next
+        serviceField.clearButtonMode = .whileEditing
+        serviceField.delegate = self
+
         urlField.placeholder = "Адрес сайта (например, nalog.gov.ru)"
         urlField.autocapitalizationType = .none
         urlField.autocorrectionType = .no
         urlField.keyboardType = .URL
+        urlField.returnKeyType = .done
+        urlField.clearButtonMode = .whileEditing
+        urlField.delegate = self
+
+        // Accessory toolbar with Done button
+        let toolbar = UIToolbar()
+        toolbar.sizeToFit()
+        let flex = UIBarButtonItem(systemItem: .flexibleSpace)
+        let doneItem = UIBarButtonItem(title: "Готово", style: .done, target: self, action: #selector(dismissKeyboard))
+        toolbar.items = [flex, doneItem]
+        nameField.inputAccessoryView = toolbar
+        serviceField.inputAccessoryView = toolbar
+        urlField.inputAccessoryView = toolbar
 
         if case .edit(let bank) = mode {
             nameField.text = bank.name
@@ -427,6 +498,7 @@ final class EditServiceViewController: UIViewController {
                 self?.selectedIcon = sym
                 self?.updatePreview()
             }, for: .touchUpInside)
+            iconButtons[sym] = btn
             iconStack.addArrangedSubview(btn)
         }
         stack.addArrangedSubview(iconScroll)
@@ -464,14 +536,37 @@ final class EditServiceViewController: UIViewController {
                 self?.selectedColorHex = hex
                 self?.updatePreview()
             }, for: .touchUpInside)
+            colorButtons[hex] = btn
             colorStack.addArrangedSubview(btn)
         }
         stack.addArrangedSubview(colorScroll)
+
+        updatePreview()
     }
 
     private func updatePreview() {
         iconPreview.image = UIImage(systemName: selectedIcon)
-        iconPreview.tintColor = UIColor(hex: selectedColorHex) ?? .systemBlue
+        let tint = UIColor(hex: selectedColorHex) ?? .systemBlue
+        iconPreview.tintColor = tint
+
+        for (sym, btn) in iconButtons {
+            let isSelected = sym == selectedIcon
+            btn.backgroundColor = isSelected ? tint.withAlphaComponent(0.2) : .secondarySystemGroupedBackground
+            btn.layer.borderWidth = isSelected ? 2 : 0
+            btn.layer.borderColor = isSelected ? tint.cgColor : UIColor.clear.cgColor
+            btn.tintColor = isSelected ? tint : .label
+        }
+
+        for (hex, btn) in colorButtons {
+            let isSelected = hex == selectedColorHex
+            btn.layer.borderWidth = isSelected ? 3 : 0
+            btn.layer.borderColor = isSelected ? UIColor.label.cgColor : UIColor.clear.cgColor
+            btn.transform = isSelected ? CGAffineTransform(scaleX: 1.15, y: 1.15) : .identity
+        }
+    }
+
+    @objc private func dismissKeyboard() {
+        view.endEditing(true)
     }
 
     @objc private func cancel() {
@@ -531,6 +626,19 @@ final class EditServiceViewController: UIViewController {
         let alert = UIAlertController(title: "Ошибка", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "ОК", style: .default))
         present(alert, animated: true)
+    }
+}
+
+extension EditServiceViewController: UITextFieldDelegate {
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        if textField == nameField {
+            serviceField.becomeFirstResponder()
+        } else if textField == serviceField {
+            urlField.becomeFirstResponder()
+        } else {
+            view.endEditing(true)
+        }
+        return true
     }
 }
 
