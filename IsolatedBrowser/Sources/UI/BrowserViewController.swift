@@ -535,7 +535,7 @@ final class BrowserViewController: UIViewController {
             let url = errorView.isHidden ? (webView.url ?? requestedURL) : requestedURL
             urlTextField.text = url?.host ?? url?.absoluteString
             urlTextField.textAlignment = .center
-            title = Bank.matching(url)?.name ?? "Браузер"
+            title = Bank.matching(url, in: preferences.services)?.name ?? "Браузер"
         }
     }
 
@@ -562,7 +562,7 @@ final class BrowserViewController: UIViewController {
         webView.isHidden = false
         urlTextField.text = url.host ?? url.absoluteString
         guard contentReady else {
-            title = Bank.matching(url)?.name ?? "Браузер"
+            title = Bank.matching(url, in: preferences.services)?.name ?? "Браузер"
             prepareSecureContent()
             return
         }
@@ -646,7 +646,7 @@ final class BrowserViewController: UIViewController {
             if preferences.warnOnVPN && VPNMonitor.shared.isVPNActive {
                 pendingLaunchURL = url
                 urlTextField.text = url.host ?? url.absoluteString
-                title = Bank.matching(url)?.name ?? "Браузер"
+                title = Bank.matching(url, in: preferences.services)?.name ?? "Браузер"
                 setVPNOverlayVisible(true)
                 return
             }
