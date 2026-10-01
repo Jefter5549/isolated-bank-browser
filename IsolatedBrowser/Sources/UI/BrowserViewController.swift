@@ -72,6 +72,21 @@ final class BrowserViewController: UIViewController {
     var tabCount = 1 { didSet { updateTabCount() } }
     var tabTitle: String { webView?.title ?? title ?? "Новая вкладка" }
     var tabHost: String { (webView?.url ?? requestedURL ?? initialURL)?.host ?? "Новая вкладка" }
+    var currentSnapshot: UIImage?
+
+    func captureSnapshot(completion: @escaping (UIImage?) -> Void) {
+        guard isViewLoaded, let webView = webView, webView.bounds.width > 0, webView.bounds.height > 0 else {
+            completion(currentSnapshot)
+            return
+        }
+        let config = WKSnapshotConfiguration()
+        webView.takeSnapshot(with: config) { [weak self] image, _ in
+            if let image = image {
+                self?.currentSnapshot = image
+            }
+            completion(self?.currentSnapshot)
+        }
+    }
 
     init(initialURL: URL? = BrowserPreferences().defaultBank.url,
          configuration: WKWebViewConfiguration? = nil, rules: WKContentRuleList? = nil) {
