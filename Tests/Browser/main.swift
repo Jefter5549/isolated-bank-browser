@@ -40,7 +40,7 @@ check("bank matching handles host casing", Bank.matching(URL(string: "https://WE
 let custom = Bank(id: "custom-nalog", name: "ФНС", service: "Личный кабинет", domain: "nalog.gov.ru", address: "https://nalog.gov.ru/", iconName: "doc.text", iconTintHex: "#0055AA", isCustom: true)
 preferences.addService(custom)
 check("added custom service exists", preferences.services.contains(where: { $0.id == "custom-nalog" }))
-check("matching finds custom service", Bank.matching(URL(string: "https://lkfl2.nalog.gov.ru/lkfl"))?.id == "custom-nalog")
+check("matching finds custom service", Bank.matching(URL(string: "https://lkfl2.nalog.gov.ru/lkfl"), in: preferences.services)?.id == "custom-nalog")
 
 var updatedCustom = custom
 updatedCustom.name = "ФНС России"
