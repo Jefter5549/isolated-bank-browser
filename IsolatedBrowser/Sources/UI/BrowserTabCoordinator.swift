@@ -122,7 +122,7 @@ final class BrowserTabsGridViewController: UIViewController, UICollectionViewDat
     private var collectionView: UICollectionView!
     private let topBar = UIView()
     private let bottomToolbar = UIView()
-    private let tabCountBadgeLabel = UILabel()
+    private let titleLabel = UILabel()
 
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 
@@ -137,80 +137,32 @@ final class BrowserTabsGridViewController: UIViewController, UICollectionViewDat
 
     func reloadData() {
         collectionView.reloadData()
-        updateTabCountBadge()
+        updateTabCountTitle()
     }
 
     private func setupTopBar() {
         topBar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(topBar)
 
-        // Center Pill (Chrome style)
-        let pill = UIView()
-        pill.backgroundColor = UIColor(white: 0.18, alpha: 1.0)
-        pill.layer.cornerRadius = 18
-        pill.translatesAutoresizingMaskIntoConstraints = false
-        topBar.addSubview(pill)
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.textColor = .white
+        titleLabel.textAlignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        topBar.addSubview(titleLabel)
 
-        let maskIcon = UIImageView(image: UIImage(systemName: "eyeglasses"))
-        maskIcon.tintColor = UIColor.white.withAlphaComponent(0.7)
-        maskIcon.contentMode = .scaleAspectFit
-        maskIcon.translatesAutoresizingMaskIntoConstraints = false
-        pill.addSubview(maskIcon)
-
-        let badgeContainer = UIView()
-        badgeContainer.layer.borderWidth = 1.5
-        badgeContainer.layer.borderColor = UIColor.white.cgColor
-        badgeContainer.layer.cornerRadius = 5
-        badgeContainer.translatesAutoresizingMaskIntoConstraints = false
-        pill.addSubview(badgeContainer)
-
-        tabCountBadgeLabel.font = .systemFont(ofSize: 11, weight: .bold)
-        tabCountBadgeLabel.textColor = .white
-        tabCountBadgeLabel.textAlignment = .center
-        tabCountBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
-        badgeContainer.addSubview(tabCountBadgeLabel)
-
-        let gridIcon = UIImageView(image: UIImage(systemName: "square.grid.2x2"))
-        gridIcon.tintColor = UIColor.white.withAlphaComponent(0.7)
-        gridIcon.contentMode = .scaleAspectFit
-        gridIcon.translatesAutoresizingMaskIntoConstraints = false
-        pill.addSubview(gridIcon)
-
-        // Left Search Icon
-        let searchBtn = UIButton(type: .system)
-        let searchConfig = UIImage.SymbolConfiguration(pointSize: 17, weight: .medium)
-        searchBtn.setImage(UIImage(systemName: "magnifyingglass", withConfiguration: searchConfig), for: .normal)
-        searchBtn.tintColor = .white
-        searchBtn.translatesAutoresizingMaskIntoConstraints = false
-        topBar.addSubview(searchBtn)
-
-        // Right Overflow Icon
-        let dotsBtn = UIButton(type: .system)
-        let dotsConfig = UIImage.SymbolConfiguration(pointSize: 17, weight: .medium)
-        dotsBtn.setImage(UIImage(systemName: "ellipsis", withConfiguration: dotsConfig), for: .normal)
-        dotsBtn.tintColor = .white
-        dotsBtn.showsMenuAsPrimaryAction = true
-        dotsBtn.menu = UIMenu(children: [
-            UIAction(title: "Новая вкладка", image: UIImage(systemName: "plus")) { [weak self] _ in
-                self?.onNew?()
-            },
-            UIAction(title: "Загрузки", image: UIImage(systemName: "arrow.down.circle")) { [weak self] _ in
-                let downloadsVC = DownloadsListViewController()
-                let nav = UINavigationController(rootViewController: downloadsVC)
-                nav.modalPresentationStyle = .pageSheet
-                self?.present(nav, animated: true)
-            },
-            UIAction(title: "Закрыть все вкладки", image: UIImage(systemName: "xmark.circle"), attributes: .destructive) { [weak self] _ in
-                guard let self = self else { return }
-                let tabs = self.getTabs()
-                for tab in tabs {
-                    self.onClose?(tab)
-                }
-                self.reloadData()
-            }
-        ])
-        dotsBtn.translatesAutoresizingMaskIntoConstraints = false
-        topBar.addSubview(dotsBtn)
+        let downloadsBtn = UIButton(type: .system)
+        let dlConfig = UIImage.SymbolConfiguration(pointSize: 19, weight: .regular)
+        downloadsBtn.setImage(UIImage(systemName: "arrow.down.circle", withConfiguration: dlConfig), for: .normal)
+        downloadsBtn.tintColor = .white
+        downloadsBtn.accessibilityLabel = "Загрузки"
+        downloadsBtn.addAction(UIAction { [weak self] _ in
+            let downloadsVC = DownloadsListViewController()
+            let nav = UINavigationController(rootViewController: downloadsVC)
+            nav.modalPresentationStyle = .pageSheet
+            self?.present(nav, animated: true)
+        }, for: .touchUpInside)
+        downloadsBtn.translatesAutoresizingMaskIntoConstraints = false
+        topBar.addSubview(downloadsBtn)
 
         NSLayoutConstraint.activate([
             topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -218,45 +170,23 @@ final class BrowserTabsGridViewController: UIViewController, UICollectionViewDat
             topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             topBar.heightAnchor.constraint(equalToConstant: 48),
 
-            searchBtn.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
-            searchBtn.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            searchBtn.widthAnchor.constraint(equalToConstant: 36),
-            searchBtn.heightAnchor.constraint(equalToConstant: 36),
+            downloadsBtn.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
+            downloadsBtn.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            downloadsBtn.widthAnchor.constraint(equalToConstant: 36),
+            downloadsBtn.heightAnchor.constraint(equalToConstant: 36),
 
-            dotsBtn.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
-            dotsBtn.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            dotsBtn.widthAnchor.constraint(equalToConstant: 36),
-            dotsBtn.heightAnchor.constraint(equalToConstant: 36),
-
-            pill.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
-            pill.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            pill.heightAnchor.constraint(equalToConstant: 36),
-            pill.widthAnchor.constraint(equalToConstant: 130),
-
-            maskIcon.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 14),
-            maskIcon.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
-            maskIcon.widthAnchor.constraint(equalToConstant: 20),
-            maskIcon.heightAnchor.constraint(equalToConstant: 20),
-
-            badgeContainer.centerXAnchor.constraint(equalTo: pill.centerXAnchor),
-            badgeContainer.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
-            badgeContainer.widthAnchor.constraint(equalToConstant: 20),
-            badgeContainer.heightAnchor.constraint(equalToConstant: 20),
-
-            tabCountBadgeLabel.centerXAnchor.constraint(equalTo: badgeContainer.centerXAnchor),
-            tabCountBadgeLabel.centerYAnchor.constraint(equalTo: badgeContainer.centerYAnchor),
-
-            gridIcon.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -14),
-            gridIcon.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
-            gridIcon.widthAnchor.constraint(equalToConstant: 18),
-            gridIcon.heightAnchor.constraint(equalToConstant: 18)
+            titleLabel.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
+            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: topBar.leadingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: downloadsBtn.leadingAnchor, constant: -8)
         ])
 
-        updateTabCountBadge()
+        updateTabCountTitle()
     }
 
-    private func updateTabCountBadge() {
-        tabCountBadgeLabel.text = "\(getTabs().count)"
+    private func updateTabCountTitle() {
+        let count = getTabs().count
+        titleLabel.text = "\(count) \(RussianPlural.tabs(count))"
     }
 
     private func setupCollectionView() {
@@ -527,4 +457,21 @@ final class BrowserTabGridCell: UICollectionViewCell {
     }
 }
 
+enum RussianPlural {
+    static func tabs(_ count: Int) -> String {
+        let mod10 = count % 10
+        let mod100 = count % 100
+        if mod100 >= 11 && mod100 <= 19 {
+            return "вкладок"
+        }
+        switch mod10 {
+        case 1:
+            return "вкладка"
+        case 2, 3, 4:
+            return "вкладки"
+        default:
+            return "вкладок"
+        }
+    }
+}
 
