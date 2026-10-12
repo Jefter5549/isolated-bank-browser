@@ -1,6 +1,6 @@
 import UIKit
 
-final class BankPickerViewController: UITableViewController {
+final class BankPickerViewController: UITableViewController, UITableViewDragDelegate, UITableViewDropDelegate {
     private let preferences: BrowserPreferences
     private let onOpen: (Bank) -> Void
     private let onDefaultChanged: () -> Void
@@ -22,12 +22,9 @@ final class BankPickerViewController: UITableViewController {
         navigationController?.view.tintColor = .systemBlue
         navigationController?.navigationBar.prefersLargeTitles = true
         
-        navigationItem.leftBarButtonItem = editButtonItem
-        let addBtn = UIBarButtonItem(image: UIImage(systemName: "plus"), style: .plain,
-                                   target: self, action: #selector(showAddService))
-        let doneBtn = UIBarButtonItem(title: "Готово", style: .done,
-                                    target: self, action: #selector(close))
-        navigationItem.rightBarButtonItems = [doneBtn, addBtn]
+        tableView.dragInteractionEnabled = true
+        tableView.dragDelegate = self
+        tableView.dropDelegate = self
         
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 58
@@ -59,7 +56,7 @@ final class BankPickerViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         switch section {
         case 0: return "Этот сервис открывается при запуске приложения. Возврат из другого приложения не прерывает текущую страницу."
-        case 1: return "Нажмите на сервис, чтобы открыть его. Нажмите на звезду, чтобы открывать этот сервис по умолчанию. В режиме правки можно менять порядок и удалять сервисы."
+        case 1: return "Нажмите на сервис, чтобы открыть его. Нажмите на звезду, чтобы открывать его по умолчанию. Удерживайте строку для изменения порядка сервисов."
         case 2: return "Вы можете добавить любой веб-сервис или интернет-банк, а также вернуть стандартный список."
         case 3: return "При запуске проверяет статус VPN и приостанавливает сетевые запросы до закрытия уведомления."
         default: return nil
@@ -171,45 +168,82 @@ final class BankPickerViewController: UITableViewController {
         }
 
         let bank = indexPath.section == 0 ? preferences.defaultBank : preferences.services[indexPath.row]
-        if isEditing && indexPath.section == 1 {
-            showEditService(bank)
-        } else {
-            dismiss(animated: true) { [onOpen] in onOpen(bank) }
+        dismiss(animated: true) { [onOpen] in onOpen(bank) }
+    }
+
+    // MARK: - Swipe Actions (Delete & Edit)
+    override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        guard indexPath.section == 1 else { return nil }
+        let bank = preferences.services[indexPath.row]
+
+        let deleteAction = UIContextualAction(style: .destructive, title: "Удалить") { [weak self] _, _, completion in
+            guard let self = self else { completion(false); return }
+            self.preferences.removeService(id: bank.id)
+            self.tableView.deleteRows(at: [indexPath], with: .automatic)
+            self.tableView.reloadRows(at: [IndexPath(row: 0, section: 0)], with: .automatic)
+            self.onDefaultChanged()
+            completion(true)
         }
-    }
+        deleteAction.image = UIImage(systemName: "trash.fill")
 
-    // MARK: - Reordering & Deletion
-    override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
-        return indexPath.section == 1
-    }
-
-    override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-        return indexPath.section == 1
-    }
-
-    override func tableView(_ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
-        guard sourceIndexPath.section == 1, destinationIndexPath.section == 1 else { return }
-        preferences.reorderServices(from: sourceIndexPath.row, to: destinationIndexPath.row)
-        tableView.reloadRows(at: [IndexPath(row: 0, section: 0)], with: .none)
-    }
-
-    override func tableView(_ tableView: UITableView, targetIndexPathForMoveFromRowAt sourceIndexPath: IndexPath,
-                            toProposedIndexPath proposedDestinationIndexPath: IndexPath) -> IndexPath {
-        if proposedDestinationIndexPath.section < 1 {
-            return IndexPath(row: 0, section: 1)
-        } else if proposedDestinationIndexPath.section > 1 {
-            return IndexPath(row: preferences.services.count - 1, section: 1)
+        let editAction = UIContextualAction(style: .normal, title: "Изменить") { [weak self] _, _, completion in
+            self?.showEditService(bank)
+            completion(true)
         }
-        return proposedDestinationIndexPath
+        editAction.backgroundColor = .systemBlue
+        editAction.image = UIImage(systemName: "pencil")
+
+        let configuration = UISwipeActionsConfiguration(actions: [deleteAction, editAction])
+        configuration.performsFirstActionWithFullSwipe = false
+        return configuration
     }
 
-    override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
-        if editingStyle == .delete && indexPath.section == 1 {
-            let bank = preferences.services[indexPath.row]
-            preferences.removeService(id: bank.id)
-            tableView.deleteRows(at: [indexPath], with: .automatic)
-            tableView.reloadRows(at: [IndexPath(row: 0, section: 0)], with: .automatic)
-            onDefaultChanged()
+    // MARK: - Native Drag & Drop Reorder
+    func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
+        guard indexPath.section == 1 else { return [] }
+        let bank = preferences.services[indexPath.row]
+        let itemProvider = NSItemProvider(object: bank.id as NSString)
+        let item = UIDragItem(itemProvider: itemProvider)
+        item.localObject = bank
+        return [item]
+    }
+
+    func tableView(_ tableView: UITableView, dragPreviewParametersForRowAt indexPath: IndexPath) -> UIDragPreviewParameters? {
+        guard let cell = tableView.cellForRow(at: indexPath) else { return nil }
+        let params = UIDragPreviewParameters()
+        let roundedPath = UIBezierPath(roundedRect: cell.bounds.insetBy(dx: 16, dy: 0), cornerRadius: 10)
+        params.visiblePath = roundedPath
+        params.backgroundColor = .clear
+        return params
+    }
+
+    func tableView(_ tableView: UITableView, dropPreviewParametersForRowAt indexPath: IndexPath) -> UIDragPreviewParameters? {
+        guard let cell = tableView.cellForRow(at: indexPath) else { return nil }
+        let params = UIDragPreviewParameters()
+        let roundedPath = UIBezierPath(roundedRect: cell.bounds.insetBy(dx: 16, dy: 0), cornerRadius: 10)
+        params.visiblePath = roundedPath
+        params.backgroundColor = .clear
+        return params
+    }
+
+    func tableView(_ tableView: UITableView, dropSessionDidUpdate session: UIDropSession, withDestinationIndexPath destinationIndexPath: IndexPath?) -> UITableViewDropProposal {
+        if let dest = destinationIndexPath, dest.section == 1 {
+            return UITableViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
+        }
+        return UITableViewDropProposal(operation: .cancel)
+    }
+
+    func tableView(_ tableView: UITableView, performDropWith coordinator: UITableViewDropCoordinator) {
+        guard let item = coordinator.items.first,
+              let sourceIndex = item.sourceIndexPath,
+              let destIndex = coordinator.destinationIndexPath,
+              sourceIndex.section == 1, destIndex.section == 1 else { return }
+
+        preferences.reorderServices(from: sourceIndex.row, to: destIndex.row)
+        coordinator.drop(item.dragItem, toRowAt: destIndex)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            self?.tableView.reloadData()
         }
     }
 
