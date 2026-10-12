@@ -73,6 +73,7 @@ final class BrowserViewController: UIViewController {
     var tabTitle: String { webView?.title ?? title ?? "Новая вкладка" }
     var tabHost: String { (webView?.url ?? requestedURL ?? initialURL)?.host ?? "Новая вкладка" }
     var currentSnapshot: UIImage?
+    private var downloadBannerView: UIView?
 
     func captureSnapshot(completion: @escaping (UIImage?) -> Void) {
         guard isViewLoaded, let webView = webView, webView.bounds.width > 0, webView.bounds.height > 0 else {
@@ -222,6 +223,16 @@ final class BrowserViewController: UIViewController {
         urlTextField.delegate = self
         urlTextField.accessibilityLabel = "Адрес сайта или поиск"
         urlTextField.accessibilityIdentifier = "browser.address"
+
+        let lockConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        let lockButton = UIButton(type: .system)
+        lockButton.setImage(UIImage(systemName: "lock.fill", withConfiguration: lockConfig), for: .normal)
+        lockButton.tintColor = .secondaryLabel
+        lockButton.frame = CGRect(x: 0, y: 0, width: 24, height: 24)
+        lockButton.addTarget(self, action: #selector(showSecurityInfo), for: .touchUpInside)
+        lockButton.accessibilityLabel = "Информация о защите соединения"
+        urlTextField.leftView = lockButton
+        urlTextField.leftViewMode = .unlessEditing
 
         let reloadConfig = UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         reloadButton.setImage(UIImage(systemName: "arrow.clockwise", withConfiguration: reloadConfig), for: .normal)
@@ -621,8 +632,151 @@ final class BrowserViewController: UIViewController {
 
     @objc private func sharePage() {
         guard let url = webView.url else { return }
-        let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        activity.popoverPresentationController?.barButtonItem = shareButton
+        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "Поделиться страницей", style: .default) { [weak self] _ in
+            guard let self = self else { return }
+            let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            activity.popoverPresentationController?.barButtonItem = self.shareButton
+            self.present(activity, animated: true)
+        })
+        alert.addAction(UIAlertAction(title: "Загрузки", style: .default) { [weak self] _ in
+            self?.showDownloads()
+        })
+        alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
+        alert.popoverPresentationController?.barButtonItem = shareButton
+        present(alert, animated: true)
+    }
+
+    @objc private func showDownloads() {
+        let downloadsVC = DownloadsListViewController()
+        let nav = UINavigationController(rootViewController: downloadsVC)
+        nav.modalPresentationStyle = .pageSheet
+        present(nav, animated: true)
+    }
+
+    @objc private func showSecurityInfo() {
+        let currentHost = (webView?.url ?? requestedURL ?? initialURL)?.host ?? ""
+        let infoVC = SecurityInfoViewController(host: currentHost)
+        if let sheet = infoVC.sheetPresentationController {
+            sheet.detents = [.medium()]
+            sheet.prefersGrabberVisible = true
+        }
+        present(infoVC, animated: true)
+    }
+
+    private func showDownloadCompletedBanner(for file: DownloadedFile) {
+        downloadBannerView?.removeFromSuperview()
+
+        let banner = UIView()
+        banner.backgroundColor = UIColor { trait in
+            trait.userInterfaceStyle == .dark
+                ? UIColor(red: 0.18, green: 0.18, blue: 0.20, alpha: 0.98)
+                : UIColor(white: 0.96, alpha: 0.98)
+        }
+        banner.layer.cornerRadius = 16
+        banner.layer.shadowColor = UIColor.black.cgColor
+        banner.layer.shadowOpacity = 0.25
+        banner.layer.shadowRadius = 10
+        banner.layer.shadowOffset = CGSize(width: 0, height: 4)
+        banner.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(banner)
+        downloadBannerView = banner
+
+        let icon = UIImageView(image: UIImage(systemName: "arrow.down.circle.fill"))
+        icon.tintColor = .systemGreen
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        banner.addSubview(icon)
+
+        let labelStack = UIStackView()
+        labelStack.axis = .vertical
+        labelStack.spacing = 2
+        labelStack.translatesAutoresizingMaskIntoConstraints = false
+        banner.addSubview(labelStack)
+
+        let titleLabel = UILabel()
+        titleLabel.text = "Файл загружен"
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.textColor = .label
+        labelStack.addArrangedSubview(titleLabel)
+
+        let fileLabel = UILabel()
+        fileLabel.text = "\(file.filename) (\(file.formattedSize))"
+        fileLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        fileLabel.textColor = .secondaryLabel
+        fileLabel.lineBreakMode = .byTruncatingMiddle
+        labelStack.addArrangedSubview(fileLabel)
+
+        let openBtn = UIButton(type: .system)
+        openBtn.setTitle("Открыть", for: .normal)
+        openBtn.titleLabel?.font = .systemFont(ofSize: 13, weight: .semibold)
+        openBtn.backgroundColor = .systemBlue
+        openBtn.setTitleColor(.white, for: .normal)
+        openBtn.layer.cornerRadius = 14
+        openBtn.translatesAutoresizingMaskIntoConstraints = false
+        openBtn.addAction(UIAction { [weak self, weak banner] _ in
+            banner?.removeFromSuperview()
+            self?.openDownloadedFile(file)
+        }, for: .touchUpInside)
+        banner.addSubview(openBtn)
+
+        let closeBtn = UIButton(type: .system)
+        let xConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)
+        closeBtn.setImage(UIImage(systemName: "xmark", withConfiguration: xConfig), for: .normal)
+        closeBtn.tintColor = .secondaryLabel
+        closeBtn.translatesAutoresizingMaskIntoConstraints = false
+        closeBtn.addAction(UIAction { [weak banner] _ in
+            banner?.removeFromSuperview()
+        }, for: .touchUpInside)
+        banner.addSubview(closeBtn)
+
+        NSLayoutConstraint.activate([
+            banner.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 14),
+            banner.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
+            banner.bottomAnchor.constraint(equalTo: bottomBarContainer.topAnchor, constant: -12),
+            banner.heightAnchor.constraint(equalToConstant: 56),
+
+            icon.leadingAnchor.constraint(equalTo: banner.leadingAnchor, constant: 12),
+            icon.centerYAnchor.constraint(equalTo: banner.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 28),
+            icon.heightAnchor.constraint(equalToConstant: 28),
+
+            labelStack.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
+            labelStack.centerYAnchor.constraint(equalTo: banner.centerYAnchor),
+            labelStack.trailingAnchor.constraint(equalTo: openBtn.leadingAnchor, constant: -8),
+
+            openBtn.trailingAnchor.constraint(equalTo: closeBtn.leadingAnchor, constant: -8),
+            openBtn.centerYAnchor.constraint(equalTo: banner.centerYAnchor),
+            openBtn.widthAnchor.constraint(equalToConstant: 76),
+            openBtn.heightAnchor.constraint(equalToConstant: 28),
+
+            closeBtn.trailingAnchor.constraint(equalTo: banner.trailingAnchor, constant: -8),
+            closeBtn.centerYAnchor.constraint(equalTo: banner.centerYAnchor),
+            closeBtn.widthAnchor.constraint(equalToConstant: 24),
+            closeBtn.heightAnchor.constraint(equalToConstant: 24)
+        ])
+
+        banner.alpha = 0
+        banner.transform = CGAffineTransform(translationX: 0, y: 20)
+        UIView.animate(withDuration: 0.3) {
+            banner.alpha = 1
+            banner.transform = .identity
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak banner] in
+            UIView.animate(withDuration: 0.3, animations: {
+                banner?.alpha = 0
+            }) { _ in
+                banner?.removeFromSuperview()
+            }
+        }
+    }
+
+    private func openDownloadedFile(_ file: DownloadedFile) {
+        let activity = UIActivityViewController(activityItems: [file.fileURL], applicationActivities: nil)
+        if let popover = activity.popoverPresentationController {
+            popover.sourceView = bottomBarContainer
+            popover.sourceRect = bottomBarContainer.bounds
+        }
         present(activity, animated: true)
     }
 
@@ -760,15 +914,46 @@ extension BrowserViewController: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
-                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+                 preferences: WKWebpagePreferences,
+                 decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
+        if #available(iOS 14.5, *), navigationAction.shouldPerformDownload {
+            decisionHandler(.download, preferences)
+            return
+        }
         let allowed = contentReady && HTTPSNavigationPolicy.allows(navigationAction.request.url)
-        decisionHandler(allowed ? .allow : .cancel)
+        decisionHandler(allowed ? .allow : .cancel, preferences)
         if !allowed && navigationAction.targetFrame?.isMainFrame != false { showHTTPWarning() }
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-        decisionHandler(contentReady && HTTPSNavigationPolicy.allows(navigationResponse.response.url) ? .allow : .cancel)
+        guard contentReady && HTTPSNavigationPolicy.allows(navigationResponse.response.url) else {
+            decisionHandler(.cancel)
+            return
+        }
+        if #available(iOS 14.5, *) {
+            if !navigationResponse.canShowMIMEType {
+                decisionHandler(.download)
+                return
+            }
+            if let httpResponse = navigationResponse.response as? HTTPURLResponse,
+               let disposition = httpResponse.value(forHTTPHeaderField: "Content-Disposition"),
+               disposition.lowercased().contains("attachment") {
+                decisionHandler(.download)
+                return
+            }
+        }
+        decisionHandler(.allow)
+    }
+
+    @available(iOS 14.5, *)
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    @available(iOS 14.5, *)
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = self
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -827,6 +1012,32 @@ extension BrowserViewController: WKUIDelegate {
         let alert = UIAlertController(title: webView.url?.host, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Отмена", style: .cancel) { _ in completionHandler(false) })
         alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in completionHandler(true) })
+        present(alert, animated: true)
+    }
+}
+
+extension BrowserViewController: WKDownloadDelegate {
+    @available(iOS 14.5, *)
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
+                  suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        let destination = DownloadsManager.shared.destinationURL(for: suggestedFilename)
+        completionHandler(destination)
+    }
+
+    @available(iOS 14.5, *)
+    func downloadDidFinish(_ download: WKDownload) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        if let latest = DownloadsManager.shared.listDownloads().first {
+            showDownloadCompletedBanner(for: latest)
+        }
+    }
+
+    @available(iOS 14.5, *)
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        let alert = UIAlertController(title: "Ошибка скачивания",
+                                      message: error.localizedDescription,
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
     }
 }

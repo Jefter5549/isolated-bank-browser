@@ -194,6 +194,12 @@ final class BrowserTabsGridViewController: UIViewController, UICollectionViewDat
             UIAction(title: "Новая вкладка", image: UIImage(systemName: "plus")) { [weak self] _ in
                 self?.onNew?()
             },
+            UIAction(title: "Загрузки", image: UIImage(systemName: "arrow.down.circle")) { [weak self] _ in
+                let downloadsVC = DownloadsListViewController()
+                let nav = UINavigationController(rootViewController: downloadsVC)
+                nav.modalPresentationStyle = .pageSheet
+                self?.present(nav, animated: true)
+            },
             UIAction(title: "Закрыть все вкладки", image: UIImage(systemName: "xmark.circle"), attributes: .destructive) { [weak self] _ in
                 guard let self = self else { return }
                 let tabs = self.getTabs()

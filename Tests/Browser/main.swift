@@ -66,7 +66,20 @@ check("missing host rejected", BrowserAddress.resolve("https://") == nil)
 let query = "банк & переводы + проценты?"
 let search = BrowserAddress.resolve(query)!
 let items = URLComponents(url: search, resolvingAgainstBaseURL: false)!.queryItems!
-check("search query remains one exact parameter", items.count == 1 && items[0].name == "q" && items[0].value == query)
+check("search query remains one exact parameter", items.count == 1 && items[0].name == "text" && items[0].value == query)
+check("search uses ya.ru host", search.host == "ya.ru")
+
+// DownloadsManager checks
+let dest1 = DownloadsManager.shared.destinationURL(for: "statement.pdf")
+check("downloads destination has correct filename", dest1.lastPathComponent == "statement.pdf")
+let testData = "test-receipt-content".data(using: .utf8)!
+try? testData.write(to: dest1)
+let dest2 = DownloadsManager.shared.destinationURL(for: "statement.pdf")
+check("downloads destination generates unique name when file exists", dest2.lastPathComponent != "statement.pdf" && dest2.pathExtension == "pdf")
+let downloadedFiles = DownloadsManager.shared.listDownloads()
+check("downloads manager lists created file", downloadedFiles.contains(where: { $0.fileURL == dest1 }))
+DownloadsManager.shared.deleteFile(at: dest1)
+check("deleted download no longer in list", !DownloadsManager.shared.listDownloads().contains(where: { $0.fileURL == dest1 }))
 
 check("VPN warning enabled by default", preferences.warnOnVPN == true)
 preferences.warnOnVPN = false
