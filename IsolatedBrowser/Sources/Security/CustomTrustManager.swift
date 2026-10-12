@@ -43,6 +43,68 @@ final class CustomTrustManager {
         NSLog("[CustomTrustManager] Успешно загружено %d якорей Минцифры", customAnchors.count)
     }
 
+    private let lock = NSLock()
+    private var detailsCache: [String: SecurityDetails] = [:]
+
+    func securityDetails(for host: String) -> SecurityDetails? {
+        let key = host.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        if let direct = detailsCache[key] { return direct }
+        return detailsCache.first(where: { key.hasSuffix($0.key) || $0.key.hasSuffix(key) })?.value
+    }
+
+    func storeSecurityDetails(_ details: SecurityDetails) {
+        let key = details.host.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        lock.lock()
+        detailsCache[key] = details
+        lock.unlock()
+    }
+
+    func inspect(serverTrust: SecTrust, host: String) -> SecurityDetails {
+        var chain: [SecCertificate] = []
+        let count = SecTrustGetCertificateCount(serverTrust)
+        for i in 0..<count {
+            if let cert = SecTrustGetCertificateAtIndex(serverTrust, i) {
+                chain.append(cert)
+            }
+        }
+
+        let leafCert = chain.first
+        let leafName = leafCert.flatMap { SecCertificateCopySubjectSummary($0) as String? } ?? host
+
+        let caCert = chain.count > 1 ? chain[1] : (chain.last ?? leafCert)
+        let caName = caCert.flatMap { SecCertificateCopySubjectSummary($0) as String? } ?? "Доверенный УЦ"
+
+        let isMintsifry = chain.contains { cert in
+            customAnchors.contains(where: { anchor in
+                CFEqual(cert, anchor) || (SecCertificateCopyData(cert) as Data) == (SecCertificateCopyData(anchor) as Data)
+            })
+        } || chain.contains { cert in
+            if let summary = SecCertificateCopySubjectSummary(cert) as String? {
+                let lower = summary.lowercased()
+                return lower.contains("russian trusted") || lower.contains("минцифры") || lower.contains("ministry of digital")
+            }
+            return false
+        }
+
+        let type: SecurityDetails.CertificateAuthorityType
+        if isMintsifry {
+            type = .mintsifry(caName: caName)
+        } else {
+            type = .system(caName: caName)
+        }
+
+        return SecurityDetails(
+            host: host,
+            caType: type,
+            issuerName: caName,
+            subjectName: leafName
+        )
+    }
+
     /// Проверяет цепочку, срок действия, назначение сертификата и имя HTTPS-сервера.
     /// Встроенные CA дополняют системное доверие только для этого SecTrust.
     func evaluate(serverTrust: SecTrust, host: String) -> Bool {
@@ -65,7 +127,12 @@ final class CustomTrustManager {
         }
 
         // Никаких повторных попыток с ослабленной политикой или доверием по имени CA.
-        return SecTrustEvaluateWithError(serverTrust, nil)
+        let success = SecTrustEvaluateWithError(serverTrust, nil)
+        if success {
+            let details = inspect(serverTrust: serverTrust, host: host)
+            storeSecurityDetails(details)
+        }
+        return success
     }
 
     func handle(_ challenge: URLAuthenticationChallenge,
@@ -81,4 +148,17 @@ final class CustomTrustManager {
         }
         completionHandler(.useCredential, URLCredential(trust: serverTrust))
     }
+}
+
+struct SecurityDetails: Equatable {
+    enum CertificateAuthorityType: Equatable {
+        case mintsifry(caName: String)
+        case system(caName: String)
+        case unknown
+    }
+
+    let host: String
+    let caType: CertificateAuthorityType
+    let issuerName: String
+    let subjectName: String
 }

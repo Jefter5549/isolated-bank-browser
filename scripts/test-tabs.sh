@@ -23,7 +23,7 @@ xcodegen generate > "$test_dir/build.log"
 if ! xcodebuild -project IsolatedBrowser.xcodeproj -scheme IsolatedBrowser \
   -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath "$test_dir/build" \
   build CODE_SIGNING_ALLOWED=NO >> "$test_dir/build.log" 2>&1; then
-  tail -60 "$test_dir/build.log"
+  cat "$test_dir/build.log"
   exit 1
 fi
 test_app="$test_dir/build/Build/Products/Debug-maccatalyst/IsolatedBrowser.app"

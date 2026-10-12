@@ -13,8 +13,8 @@ enum BrowserAddress {
            let url = URL(string: "https://" + text), let host = url.host, !host.isEmpty {
             return url
         }
-        var components = URLComponents(string: "https://www.google.com/search")!
-        components.queryItems = [URLQueryItem(name: "q", value: text)]
+        var components = URLComponents(string: "https://ya.ru/search")!
+        components.queryItems = [URLQueryItem(name: "text", value: text)]
         return components.url
     }
 }

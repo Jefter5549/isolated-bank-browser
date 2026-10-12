@@ -97,6 +97,23 @@ for url in ["https://bank.test", "HTTPS://bank.test", "about:blank", "blob:https
 }
 check("missing navigation URL rejected", !HTTPSNavigationPolicy.allows(nil))
 
+// SecurityDetails classification checks
+let details = manager.securityDetails(for: "bank.test")
+check("security details recorded on successful evaluation", details != nil)
+if case .mintsifry = details?.caType {
+    check("mintsifry/custom CA correctly classified as mintsifry", true)
+} else {
+    check("mintsifry/custom CA correctly classified as mintsifry", false)
+}
+
+let sysManager = CustomTrustManager(customAnchors: [])
+let sysDetails = sysManager.inspect(serverTrust: try trust(good), host: "global.test")
+if case .system = sysDetails.caType {
+    check("system CA correctly classified as system", true)
+} else {
+    check("system CA correctly classified as system", false)
+}
+
 // Optional real-network control: same challenge handler, no custom anchors.
 if CommandLine.arguments.contains("--live") {
     final class LiveDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
