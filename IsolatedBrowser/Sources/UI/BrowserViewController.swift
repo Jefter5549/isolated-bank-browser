@@ -950,10 +950,9 @@ final class BrowserViewController: UIViewController {
 
     private func showFailure(_ error: Error, navigation: WKNavigation?) {
         let error = error as NSError
-        // Ignore cancellation or policy interruption when WebKit converts navigation to download
+        // Ignore cancellation or policy interruption when WebKit converts navigation to download (WebKitErrorDomain 102)
         if error.code == NSURLErrorCancelled ||
-           (error.domain == "WebKitErrorDomain" && error.code == 102) ||
-           (error.domain == WKErrorDomain && error.code == WKError.Code.frameLoadInterruptedByPolicyChange.rawValue) {
+           ((error.domain == "WebKitErrorDomain" || error.domain == WKErrorDomain) && error.code == 102) {
             return
         }
         guard activeNavigation == nil || navigation === activeNavigation else { return }
