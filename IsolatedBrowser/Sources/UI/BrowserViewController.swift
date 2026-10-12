@@ -27,6 +27,7 @@ final class BrowserViewController: UIViewController {
     private let topBarView = UIView()
     private let addressBar = UIView()
     private let servicesButton = UIButton(type: .system)
+    private let lockButton = UIButton(type: .system)
     private let urlTextField = UITextField()
     private let reloadButton = UIButton(type: .system)
     private let progressView = UIProgressView(progressViewStyle: .bar)
@@ -225,7 +226,6 @@ final class BrowserViewController: UIViewController {
         urlTextField.accessibilityIdentifier = "browser.address"
 
         let lockConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-        let lockButton = UIButton(type: .system)
         lockButton.setImage(UIImage(systemName: "lock.fill", withConfiguration: lockConfig), for: .normal)
         lockButton.tintColor = .secondaryLabel
         lockButton.frame = CGRect(x: 0, y: 0, width: 24, height: 24)
@@ -563,6 +563,24 @@ final class BrowserViewController: UIViewController {
             urlTextField.textAlignment = .center
             title = Bank.matching(url, in: preferences.services)?.name ?? "Браузер"
         }
+
+        if let host = (webView.url ?? requestedURL)?.host,
+           let details = CustomTrustManager.shared.securityDetails(for: host) {
+            switch details.caType {
+            case .mintsifry:
+                lockButton.tintColor = .systemGreen
+                lockButton.accessibilityLabel = "Соединение защищено сертификатом Минцифры РФ"
+            case .system:
+                lockButton.tintColor = .systemBlue
+                lockButton.accessibilityLabel = "Соединение защищено доверенным сертификатом"
+            case .unknown:
+                lockButton.tintColor = .secondaryLabel
+                lockButton.accessibilityLabel = "Защищённое соединение"
+            }
+        } else {
+            lockButton.tintColor = .secondaryLabel
+            lockButton.accessibilityLabel = "Защищённое соединение"
+        }
     }
 
     private func updateDefaultBankLabel() {
@@ -656,7 +674,8 @@ final class BrowserViewController: UIViewController {
 
     @objc private func showSecurityInfo() {
         let currentHost = (webView?.url ?? requestedURL ?? initialURL)?.host ?? ""
-        let infoVC = SecurityInfoViewController(host: currentHost)
+        let details = CustomTrustManager.shared.securityDetails(for: currentHost)
+        let infoVC = SecurityInfoViewController(host: currentHost, details: details)
         if let sheet = infoVC.sheetPresentationController {
             sheet.detents = [.medium()]
             sheet.prefersGrabberVisible = true

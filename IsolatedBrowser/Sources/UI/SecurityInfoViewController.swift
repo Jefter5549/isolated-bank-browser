@@ -2,9 +2,11 @@ import UIKit
 
 final class SecurityInfoViewController: UIViewController {
     private let host: String
+    private let details: SecurityDetails?
 
-    init(host: String) {
+    init(host: String, details: SecurityDetails? = nil) {
         self.host = host
+        self.details = details
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -28,16 +30,43 @@ final class SecurityInfoViewController: UIViewController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         scrollView.addSubview(stack)
 
+        let isMintsifry: Bool
+        let isSystem: Bool
+        let caName: String
+
+        if let details = details {
+            switch details.caType {
+            case .mintsifry(let name):
+                isMintsifry = true
+                isSystem = false
+                caName = name
+            case .system(let name):
+                isMintsifry = false
+                isSystem = true
+                caName = name
+            case .unknown:
+                isMintsifry = false
+                isSystem = false
+                caName = details.issuerName
+            }
+        } else {
+            isMintsifry = false
+            isSystem = false
+            caName = "Доверенный центр сертификации"
+        }
+
         // Shield Icon
         let iconContainer = UIView()
-        iconContainer.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.15)
+        let accentColor: UIColor = isMintsifry ? .systemGreen : (isSystem ? .systemBlue : .secondaryLabel)
+        iconContainer.backgroundColor = accentColor.withAlphaComponent(0.15)
         iconContainer.layer.cornerRadius = 36
         iconContainer.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(iconContainer)
 
         let shieldConfig = UIImage.SymbolConfiguration(pointSize: 36, weight: .semibold)
-        let shieldIcon = UIImageView(image: UIImage(systemName: "checkmark.shield.fill", withConfiguration: shieldConfig))
-        shieldIcon.tintColor = .systemGreen
+        let iconName = isMintsifry ? "checkmark.shield.fill" : (isSystem ? "lock.shield.fill" : "lock.fill")
+        let shieldIcon = UIImageView(image: UIImage(systemName: iconName, withConfiguration: shieldConfig))
+        shieldIcon.tintColor = accentColor
         shieldIcon.translatesAutoresizingMaskIntoConstraints = false
         iconContainer.addSubview(shieldIcon)
 
@@ -57,6 +86,35 @@ final class SecurityInfoViewController: UIViewController {
         hostLabel.textAlignment = .center
         stack.addArrangedSubview(hostLabel)
 
+        // Status Badge Pill
+        let badgeContainer = UIView()
+        badgeContainer.layer.cornerRadius = 13
+        badgeContainer.layer.borderWidth = 1.0
+        badgeContainer.layer.borderColor = accentColor.cgColor
+        badgeContainer.backgroundColor = accentColor.withAlphaComponent(0.1)
+        badgeContainer.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(badgeContainer)
+
+        let badgeLabel = UILabel()
+        if isMintsifry {
+            badgeLabel.text = "Сертификат Минцифры России"
+        } else if isSystem {
+            badgeLabel.text = "Общедоступный доверенный сертификат"
+        } else {
+            badgeLabel.text = "Шифрование TLS / HTTPS"
+        }
+        badgeLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        badgeLabel.textColor = accentColor
+        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        badgeContainer.addSubview(badgeLabel)
+
+        NSLayoutConstraint.activate([
+            badgeContainer.heightAnchor.constraint(equalToConstant: 26),
+            badgeLabel.leadingAnchor.constraint(equalTo: badgeContainer.leadingAnchor, constant: 12),
+            badgeLabel.trailingAnchor.constraint(equalTo: badgeContainer.trailingAnchor, constant: -12),
+            badgeLabel.centerYAnchor.constraint(equalTo: badgeContainer.centerYAnchor)
+        ])
+
         // Card Container
         let card = UIView()
         card.backgroundColor = .secondarySystemBackground
@@ -71,13 +129,39 @@ final class SecurityInfoViewController: UIViewController {
         card.addSubview(cardStack)
 
         let certTitle = UILabel()
-        certTitle.text = "Сертификаты НУЦ Минцифры РФ"
+        if isMintsifry {
+            certTitle.text = "Национальный УЦ (НУЦ) Минцифры"
+        } else if isSystem {
+            certTitle.text = "Глобальный центр сертификации"
+        } else {
+            certTitle.text = "Безопасное соединение"
+        }
         certTitle.font = .systemFont(ofSize: 15, weight: .semibold)
         certTitle.textColor = .label
         cardStack.addArrangedSubview(certTitle)
 
+        let issuerLabel = UILabel()
+        issuerLabel.text = "Кем выдан: \(caName)"
+        issuerLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        issuerLabel.textColor = .label
+        cardStack.addArrangedSubview(issuerLabel)
+
+        if let subject = details?.subjectName, subject != host {
+            let subjectLabel = UILabel()
+            subjectLabel.text = "Кому выдан: \(subject)"
+            subjectLabel.font = .systemFont(ofSize: 13, weight: .regular)
+            subjectLabel.textColor = .secondaryLabel
+            cardStack.addArrangedSubview(subjectLabel)
+        }
+
         let certDesc = UILabel()
-        certDesc.text = "Сайт проверен и подтверждён с использованием корневых сертификатов Национального удостоверяющего центра Минцифры России (Russian Trusted Root CA)."
+        if isMintsifry {
+            certDesc.text = "Сайт использует доверенный отечественный сертификат безопасности, подтверждённый встроенными корневыми сертификатами Минцифры РФ."
+        } else if isSystem {
+            certDesc.text = "Сайт использует международный сертификат безопасности, аккредитованный доверенным хранилищем операционной системы iOS."
+        } else {
+            certDesc.text = "Сайт работает по зашифрованному протоколу HTTPS. Открытый трафик HTTP заблокирован политиками безопасности RUINET."
+        }
         certDesc.font = .systemFont(ofSize: 13, weight: .regular)
         certDesc.textColor = .secondaryLabel
         certDesc.numberOfLines = 0
@@ -90,7 +174,7 @@ final class SecurityInfoViewController: UIViewController {
         cardStack.addArrangedSubview(divider)
 
         let tlsDesc = UILabel()
-        tlsDesc.text = "Шифрование: TLS 1.2 / TLS 1.3 с совершенной прямой секретностью (PFS). Ваши персональные данные, пароли и реквизиты карт надёжно защищены."
+        tlsDesc.text = "Шифрование: TLS 1.2 / TLS 1.3 с совершенной прямой секретностью (PFS). Данные и реквизиты надёжно зашифрованы."
         tlsDesc.font = .systemFont(ofSize: 13, weight: .regular)
         tlsDesc.textColor = .secondaryLabel
         tlsDesc.numberOfLines = 0
